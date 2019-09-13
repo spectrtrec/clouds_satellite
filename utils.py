@@ -68,6 +68,19 @@ def mask2rle(img):
     runs[1::2] -= runs[::2]
     return ' '.join(str(x) for x in runs)
 
+def run_length_encode(component):
+    component = component.T.flatten()
+    start = np.where(component[1:] > component[:-1])[0]+1
+    end = np.where(component[:-1] > component[1:])[0]+1
+    length = end-start
+    rle = []
+    for i in range(len(length)):
+        if i == 0:
+            rle.extend([start[0], length[0]])
+        else:
+            rle.extend([start[i]-end[i-1], length[i]])
+    rle = ' '.join([str(r) for r in rle])
+    return rle
 
 def sigmoid(x): return 1 / (1 + np.exp(-x))
 
@@ -77,7 +90,6 @@ def post_process(probability, threshold, min_size):
     Post processing of each predicted mask, components with lesser number of pixels
     than `min_size` are ignored
     """
-    # don't remember where I saw it
     mask = cv2.threshold(probability, threshold, 1, cv2.THRESH_BINARY)[1]
     num_component, component = cv2.connectedComponents(mask.astype(np.uint8))
     predictions = np.zeros((350, 525), np.float32)

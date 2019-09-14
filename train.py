@@ -83,7 +83,8 @@ class PytorchTrainer(object):
 
         self.dataloaders = {
             "train": train_dataloader,
-            "val": validation_dataloader#for i, phase in enumerate(self.phases)
+            # for i, phase in enumerate(self.phases)
+            "val": validation_dataloader
         }
         self.traindata = train_data
         self.validation_data = val_data
@@ -130,22 +131,22 @@ class PytorchTrainer(object):
             running_loss3 += loss3.item() * inputs.size(0)
         epoch_loss = running_loss / data_size
         epoch_loss3 = running_loss3 / data_size
-        
+
         print('phase {} epoch: {} loss: {:.3f} loss3: {:.3f}'.format(
             phase, epoch, epoch_loss, epoch_loss3))
         return epoch_loss
-    
+
     @staticmethod
-    def predict(test_loader, sub, py_model):
+    def predict(test_loader, sub, py_model, class_params=None):
         model = py_model
         model.eval()
         state = torch.load(
-            './model.pth', map_location=lambda storage, loc: storage)
+            'weights/model.pth', map_location=lambda storage, loc: storage)
         model.load_state_dict(state['state_dict'])
         encoded_pixels = []
         for i, inputs in enumerate(test_loader):
             inputs = inputs[0].to(device)
-            batch = torch.sigmoid(model(inputs))
+            batch = model(inputs)
             preds = batch.cpu().detach().numpy()
             for j, probability in enumerate(preds):
                 for prop in probability:
@@ -153,7 +154,7 @@ class PytorchTrainer(object):
                         prop = cv2.resize(prop, dsize=(
                             525, 350), interpolation=cv2.INTER_LINEAR)
                     predict, num_predict = post_process(
-                    prop, 0.6, 10000)
+                        sigmoid(prop), 0.65, 10000)
                     if num_predict == 0:
                         encoded_pixels.append('')
                     else:
@@ -177,13 +178,13 @@ class PytorchTrainer(object):
             if val_loss < self.best_loss:
                 print("******** New optimal found, saving state ********")
                 self.best_loss = val_loss
-                state["best_loss"] = self.best_loss 
-                torch.save(state, "./model.pth")
+                state["best_loss"] = self.best_loss
+                torch.save(state, "weights/model.pth")
 
     def val_score(self, val_load, vald_dataset):
         model = self.net
         state = torch.load(
-            './model.pth', map_location=lambda storage, loc: storage)
+            'weights/model.pth', map_location=lambda storage, loc: storage)
         model.load_state_dict(state["state_dict"])
         model.eval()
         encoded_pixels = []
@@ -204,7 +205,7 @@ class PytorchTrainer(object):
 
             for j, probability in enumerate(preds):
                 if probability.shape != (350, 525):
-                    probability = cv2.resize(sigmoid(probability), dsize=(
+                    probability = cv2.resize(probability, dsize=(
                         525, 350), interpolation=cv2.INTER_LINEAR)
                 probabilities[i * 4 + j, :, :] = probability
         attempts = []
@@ -214,16 +215,18 @@ class PytorchTrainer(object):
                 masks = []
                 for probability in probabilities:
                     predict, num_predict = post_process(
-                        probability, t, ms)
+                        sigmoid(probability), t, ms)
                     masks.append(predict)
-
                 d = []
                 for i, j in zip(masks, valid_masks):
                     if i.sum() != 0:
                         d.append(dice(i, j))
-
                 attempts.append((t, ms, np.mean(d)))
-        return attempts
+
+        attempts_df = pd.DataFrame(attempts, columns=['threshold', 'size', 'dice'])
+        attempts_df = attempts_df.sort_values('dice', ascending=False)
+        print(attempts_df.head(10))
+        
 
 
 if __name__ == "__main__":
@@ -234,15 +237,15 @@ if __name__ == "__main__":
         os.path.join(os.getcwd(), "", 'cloudsimg'))
     train_id, valid_id, test_id = prepare_ids(train_df, submission)
     model = smp.Unet(
-        encoder_name='resnet50',
+        encoder_name='se_resnext50_32x4d',
         encoder_weights='imagenet',
         classes=4,
         activation=None,
     )
     preprocessing_fn = smp.encoders.get_preprocessing_fn(
-        'resnet50', 'imagenet')
+        'se_resnext50_32x4d', 'imagenet')
     num_workers = 6
-    bs = 16
+    bs = 10
 
     train_dataset = CloudDataset(train_df, train_path, test_path, 'train', train_id, get_training_augmentation(
     ), get_preprocessing(preprocessing_fn))
@@ -256,14 +259,11 @@ if __name__ == "__main__":
     valid_loader = DataLoader(
         valid_dataset, batch_size=bs, shuffle=False, num_workers=num_workers)
 
-    test_loader = DataLoader(test_dataset, batch_size=4,
+    test_loader = DataLoader(test_dataset, batch_size=6,
                              shuffle=False, num_workers=num_workers)
     pytorchtrain = PytorchTrainer(
         train_loader, valid_loader, train_dataset, valid_dataset, model)
     model = pytorchtrain.net
+    # pytorchtrain.start()
+    #pytorchtrain.val_score(valid_loader, valid_dataset)
     pytorchtrain.predict(test_loader, submission, model)
-    #pytorchtrain.start()
-    #ff = pytorchtrain.val_score(valid_loader, valid_dataset)
-    # attempts_df = pd.DataFrame(ff, columns=['threshold', 'size', 'dice'])
-    # attempts_df = attempts_df.sort_values('dice', ascending=False)
-    # print(attempts_df.head(10))

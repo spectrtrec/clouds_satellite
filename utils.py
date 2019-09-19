@@ -3,6 +3,8 @@ import numpy as np
 import albumentations as albu
 import cv2
 import pandas as pd
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 
 def get_img(x, path: str, folder: str = 'train_images'):
     """
@@ -68,6 +70,7 @@ def mask2rle(img):
     runs[1::2] -= runs[::2]
     return ' '.join(str(x) for x in runs)
 
+
 def run_length_encode(component):
     component = component.T.flatten()
     start = np.where(component[1:] > component[:-1])[0]+1
@@ -81,6 +84,7 @@ def run_length_encode(component):
             rle.extend([start[i]-end[i-1], length[i]])
     rle = ' '.join([str(r) for r in rle])
     return rle
+
 
 def sigmoid(x): return 1 / (1 + np.exp(-x))
 
@@ -148,3 +152,47 @@ def dice(img1, img2):
     intersection = np.logical_and(img1, img2)
 
     return 2. * intersection.sum() / (img1.sum() + img2.sum())
+
+
+
+def best_threshold(probabilities, valid_masks, attempts):
+    for t in range(0, 100, 5):
+        t /= 100
+        for ms in [0, 1000, 10000]:
+            masks = []
+            for probability in probabilities:
+                predict, _ = post_process(
+                    sigmoid(probability), t, ms)
+                masks.append(predict)
+            d = []
+            for i, j in zip(masks, valid_masks):
+                if i.sum() != 0:
+                    d.append(dice(i, j))
+            attempts.append((t, ms, np.mean(d)))
+    attempts_df = pd.DataFrame(
+        attempts, columns=['threshold', 'size', 'dice'])
+    attempts_df = attempts_df.sort_values('dice', ascending=False)
+    best_threshold = attempts_df['threshold'].values[0]
+    best_size = attempts_df['size'].values[0]
+    return best_threshold, best_size
+
+
+def prepare_train(path: str):
+    train = pd.read_csv(f'{path}/train.csv')
+    sub = pd.read_csv(f'{path}/sample_submission.csv')
+    train['label'] = train['Image_Label'].apply(lambda x: x.split('_')[1])
+    train['im_id'] = train['Image_Label'].apply(lambda x: x.split('_')[0])
+    sub['label'] = sub['Image_Label'].apply(lambda x: x.split('_')[1])
+    sub['im_id'] = sub['Image_Label'].apply(lambda x: x.split('_')[0])
+    return train, sub
+
+
+def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame):
+    id_mask_count = train.loc[train['EncodedPixels'].isnull() == False, 'Image_Label'].apply(lambda x: x.split('_')[0]).value_counts().\
+        reset_index().rename(
+            columns={'index': 'img_id', 'Image_Label': 'count'})
+    train_ids, valid_ids = train_test_split(
+        id_mask_count['img_id'].values, random_state=42, stratify=id_mask_count['count'], test_size=0.1)
+    test_ids = sub['Image_Label'].apply(
+        lambda x: x.split('_')[0]).drop_duplicates().values
+    return train_ids, valid_ids, test_ids

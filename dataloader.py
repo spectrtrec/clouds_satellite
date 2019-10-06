@@ -14,19 +14,19 @@ from albumentations import torch as AT
 import numpy as np
 import pandas as pd
 import cv2
-from utils import *
+from utils.utils import *
 
 
 class CloudDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, path_tain: str, path_test: str, datatype: str, img_ids: np.array,
+    def __init__(self, df: pd.DataFrame, img_path: str, datatype: str, img_ids: np.array,
                  transforms=albu.Compose(
                      [albu.HorizontalFlip(), AT.ToTensor()]),
                  preprocessing=None):
         self.df = df
         if datatype != 'test':
-            self.data_folder = path_tain
+            self.data_folder = img_path
         else:
-            self.data_folder = path_test
+            self.data_folder = img_path
         self.img_ids = img_ids
         self.transforms = transforms
         self.preprocessing = preprocessing
@@ -47,5 +47,5 @@ class CloudDataset(Dataset):
             preprocessed = self.preprocessing(image=img, mask=mask)
             img = preprocessed['image']
             mask = preprocessed['mask']
-        return img, mask
+        return img, mask, image_name
 

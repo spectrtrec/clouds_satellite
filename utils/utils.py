@@ -47,6 +47,23 @@ def rle_decode(mask_rle: str = "", shape: tuple = (1400, 2100)):
     return img.reshape(shape, order="F")
 
 
+def new_make_mask(
+    df, image_label, shape=(1400, 2100), cv_shape=(525, 350), debug=False
+):
+    """
+    Create mask based on df, image name and shape.
+    """
+    if debug:
+        print(shape, cv_shape)
+    df = df.set_index("Image_Label")
+    encoded_mask = df.loc[image_label, "EncodedPixels"]
+    mask = np.zeros((shape[0], shape[1]), dtype=np.float32)
+    if encoded_mask is not np.nan:
+        mask = rle_decode(encoded_mask, shape=shape)  # original size
+
+    return cv2.resize(mask, cv_shape)
+
+
 def make_mask(
     df: pd.DataFrame, image_name: str = "img.jpg", shape: tuple = (1400, 2100)
 ):
@@ -203,6 +220,28 @@ def prepare_train(path: str):
 #     df_train[["im_id", "fold"]].sample(frac=1, random_state=123)
 #     return df_train
 
+def val_score(model, val_load, vald_dataset):
+    valid_masks = []
+    attempts = []
+    probabilities = np.zeros((2220, 350, 525))
+    for i, output in enumerate(val_load):
+        inputs, masks, _ = output
+        inputs, masks = inputs.to(device), masks.to(device)
+        with torch.set_grad_enabled(False):
+            predict = model(inputs)
+            predict = np.clip(predict.detach().cpu().numpy()[0], 0, 1)
+            masks = masks.detach().cpu().numpy()[0]
+        for m in masks:
+            if m.shape != (350, 525):
+                m = cv2.resize(m, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
+            valid_masks.append(m)
+        for j, probability in enumerate(predict):
+            if probability.shape != (350, 525):
+                probability = cv2.resize(
+                    probability, dsize=(525, 350), interpolation=cv2.INTER_LINEAR
+                )
+            probabilities[i * 4 + j, :, :] = probability
+    threshold, size = best_threshold(probabilities, valid_masks, attempts)
 
 def generate_folds(files_train: pd.DataFrame, n_fold: int) -> None:
     kf = KFold(n_splits=n_fold, shuffle=True, random_state=100)
@@ -230,7 +269,7 @@ def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame, folds: int) -> None:
     )
     train_ids = generate_folds(id_mask_count["img_id"], folds)
     save_ids(pd.DataFrame(test_ids, columns=["im_id"]), "test_id.csv")
-    #save_ids(train_ids, f"train_folds_{folds}.csv")
+    # save_ids(train_ids, f"train_folds_{folds}.csv")
 
 
 def load_yaml(file_name):

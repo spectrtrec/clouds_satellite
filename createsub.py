@@ -36,7 +36,7 @@ def build_rle_dict(mask_dict):
     for name, mask in tqdm(mask_dict.items()):
         if mask.shape != (350, 525):
             mask = cv2.resize(mask, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
-        predict, num_predict = post_process(mask, 0.55, 10000)
+        predict, num_predict = post_process(mask, 0.9, 10000)
         if num_predict == 0:
             encoded_pixels.append("")
         else:
@@ -52,6 +52,42 @@ def buid_submission(sub, encoded_pixels):
         columns=["Image_Label", "EncodedPixels"],
         index=False,
     )
+    return sub
+
+
+def post_process(sub):
+    model_class_names = ["Fish", "Flower", "Gravel", "Sugar"]
+    mode = "convex"
+
+    img_label_list = []
+    enc_pixels_list = []
+    test_imgs = os.listdir("cloudsimg/test_images")
+    for test_img_i, test_img in enumerate(tqdm(test_imgs)):
+        for class_i, class_name in enumerate(model_class_names):
+
+            path = os.path.join("cloudsimg/test_images", test_img)
+            img = cv2.imread(path).astype(np.float32)
+            img = img / 255.0
+            img2 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+            img_label_list.append(f"{test_img}_{class_name}")
+
+            mask = make_mask(sub, test_img + "_" + class_name, shape=(350, 525))
+            if True:
+                mask = draw_convex_hull(mask.astype(np.uint8), mode=mode)
+            mask[img2 <= 2 / 255.0] = 0
+            mask = post_process_minsize(mask, min_size[class_i])
+
+            if mask.sum() == 0:
+                enc_pixels_list.append(np.nan)
+            else:
+                mask = np.where(mask > 0.5, 1.0, 0.0)
+                enc_pixels_list.append(mask2rle(mask))
+
+    submission_df = pd.DataFrame(
+        {"Image_Label": img_label_list, "EncodedPixels": enc_pixels_list}
+    )
+    submission_df.to_csv("sub_convex.csv", index=None)
 
 
 def load_mask_dict(cfg):
@@ -65,7 +101,7 @@ def load_mask_dict(cfg):
 
 def main():
     config_path = Path(
-        "configs/se_resnext50_32/submission_se_resnext50_32.yaml".strip("/")
+        "configs/efficientnet-b3/submission_efficientnet-b3.yaml".strip("/")
     )
     sub_config = load_yaml(config_path)
 

@@ -23,41 +23,28 @@ from utils.utils import init_logger, init_seed, load_yaml, best_threshold
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def flip_tensor_lr(images):
+    invert_indices = torch.arange(images.data.size()[-1] - 1, -1, -1).long()
+    return images.index_select(3, invert_indices.cuda())
+
+
+def tta(model, images):
+    predictions = model(model, images)
+    predictions_lr = model(flip_tensor_lr(images))
+    predictions_lr = flip_tensor_lr(predictions_lr)
+    predictions_tta = torch.stack([predictions, predictions_lr]).mean(0)
+    return predictions_tta
+
+
 def predict(loader, model):
     mask_dict = {}
     for inputs, _, image_name in loader:
-        batch = model(inputs.to(device))
-        preds = batch.cpu().detach().numpy()
-        for img, probability in zip(image_name, preds):
+        images = inputs.to(device)
+        batch = tta(model, images)
+        for img, probability in zip(image_name, batch.cpu().detach().numpy()):
             for i, prop in enumerate(probability):
                 mask_dict[img + str(i)] = sigmoid(prop).astype(np.float32)
     return mask_dict
-
-
-def val_score(model, val_load, vald_dataset):
-    valid_masks = []
-    attempts = []
-    probabilities = np.zeros((2220, 350, 525))
-    for i, output in enumerate(val_load):
-        inputs, masks, _ = output
-        inputs, masks = inputs.to(device), masks.to(device)
-        with torch.set_grad_enabled(False):
-            predict = model(inputs)
-            predict = np.clip(predict.detach().cpu().numpy()[0], 0, 1)
-            masks = masks.detach().cpu().numpy()[0]
-        for m in masks:
-            if m.shape != (350, 525):
-                m = cv2.resize(m, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
-            valid_masks.append(m)
-        for j, probability in enumerate(predict):
-            if probability.shape != (350, 525):
-                probability = cv2.resize(
-                    probability, dsize=(525, 350), interpolation=cv2.INTER_LINEAR
-                )
-            probabilities[i * 4 + j, :, :] = probability
-    threshold, size = best_threshold(probabilities, valid_masks, attempts)
-    print(threshold, size)
-    #return threshold, size
 
 
 def build_checkpoints_list(cfg, tfg):
@@ -116,9 +103,9 @@ def avarage_masks(plk_list, experiment_folder, config):
 
 def main():
     config_path = Path(
-        "configs/se_resnext50_32/inference_se_resnext50_32.yaml".strip("/")
+        "configs/efficientnet-b3/inference_efficientnet-b3.yaml".strip("/")
     )
-    config_folder = Path("configs/se_resnext50_32/se_resnext50_32.yaml".strip("/"))
+    config_folder = Path("configs/efficientnet-b3/efficientnet-b3.yaml".strip("/"))
 
     experiment_folder = config_path.parents[0]
     inference_config = load_yaml(config_path)
@@ -135,14 +122,12 @@ def main():
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
 
     model = smp.Unet(
-        encoder_name="se_resnext50_32x4d",
+        encoder_name="efficientnet-b3",
         encoder_weights="imagenet",
         classes=4,
         activation=None,
     )
-    preprocessing_fn = smp.encoders.get_preprocessing_fn(
-        "se_resnext50_32x4d", "imagenet"
-    )
+    preprocessing_fn = smp.encoders.get_preprocessing_fn("efficientnet-b3", "imagenet")
     test_dataset = CloudDataset(
         submission,
         test_path,
@@ -154,7 +139,7 @@ def main():
     test_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
-    
+
     train_path = os.path.join(os.getcwd(), train_config["TRAIN_PATH"])
 
     checkpoints_list, vald_df = build_checkpoints_list(inference_config, train_config)
@@ -179,14 +164,13 @@ def main():
         state = torch.load(checkpoint_path)
         model.load_state_dict(state["state_dict"])
         model.eval()
-        val_score(model, valid_loader, valid_dataset)
+        # val_score(model, valid_loader, valid_dataset)
         current_mask_dict = predict(test_loader, model)
         result_path = Path(dict_dir, result[3] + result[4] + ".pkl")
         with open(result_path, "wb") as handle:
             pickle.dump(current_mask_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
         del current_mask_dict
     plk_list = build_masks_list(dict_dir)
-    print(plk_list)
     avarage_masks(plk_list, experiment_folder, inference_config)
 
 

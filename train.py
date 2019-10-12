@@ -101,7 +101,7 @@ def train_fold(
 
 
 if __name__ == "__main__":
-    config_folder = Path("configs/se_resnext50_32/se_resnext50_32.yaml".strip("/"))
+    config_folder = Path("configs/efficientnet-b3/efficientnet-b3.yaml".strip("/"))
     experiment_folder = config_folder.parents[0]
 
     train_config = load_yaml(config_folder)
@@ -118,13 +118,13 @@ if __name__ == "__main__":
         prepare_ids(train_df, submission, 8)
 
     model = smp.Unet(
-        encoder_name="se_resnext50_32x4d",
+        encoder_name="efficientnet-b3",
         encoder_weights="imagenet",
         classes=4,
         activation=None,
     )
     preprocessing_fn = smp.encoders.get_preprocessing_fn(
-        "se_resnext50_32x4d", "imagenet"
+        "efficientnet-b3", "imagenet"
     )
     num_workers = train_config["WORKERS"]
     batch_size = train_config["BATCH_SIZE"]

@@ -1,0 +1,23 @@
+
+NUM_WORKERS: 8
+BATCH_SIZE: 4
+
+CHECKPOINTS:
+  FULL_FOLDER: checkpoints
+  BEST_FOLDER: checkpoints/best
+  PIPELINE_PATH: configs/efficientnet-b3
+  PIPELINE_NAME: efficientnet-b3
+
+DICT_FOLDER: 'dict_efficientnet-b3'
+SUBMIT_BEST: True
+USEFOLDS: [0,1,2,3,4,5,6,7]
+SELECTED_CHECKPOINTS:
+  fold0: [0,1,2]
+  fold1: [2,8,17]
+  fold2: [11,20,21]
+  fold3: [13,18,21]
+  fold4: [11,12,17]
+  fold5: [11,17,23]
+  fold6: [21,23,24]
+  fold7: [10,22,24]
+RESULT: result_top3.pkl

@@ -1,0 +1,5 @@
+SAMPLE_SUB: cloudsimg/sample_submission.csv
+MASK_DICT: configs/efficientnet-b3/result_top3.pkl
+
+
+SUB_FILE: 2nd_stage_resnet50.csv

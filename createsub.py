@@ -7,13 +7,20 @@ from tqdm import tqdm
 from pathlib import Path
 
 import cv2
-
+import os
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-from utils.utils import load_yaml, mask2rle, sigmoid
+from utils.utils import (
+    load_yaml,
+    mask2rle,
+    sigmoid,
+    draw_convex_hull,
+    new_make_mask,
+    post_process_minsize,
+)
 
-
+min_size = [10000 ,10000, 10000, 10000]
 def post_process(probability, threshold, min_size):
     """
     Post processing of each predicted mask, components with lesser number of pixels
@@ -36,7 +43,7 @@ def build_rle_dict(mask_dict):
     for name, mask in tqdm(mask_dict.items()):
         if mask.shape != (350, 525):
             mask = cv2.resize(mask, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
-        predict, num_predict = post_process(mask, 0.9, 10000)
+        predict, num_predict = post_process(mask, 0.45, 10000)
         if num_predict == 0:
             encoded_pixels.append("")
         else:
@@ -55,7 +62,7 @@ def buid_submission(sub, encoded_pixels):
     return sub
 
 
-def post_process(sub):
+def post_process_new(sub):
     model_class_names = ["Fish", "Flower", "Gravel", "Sugar"]
     mode = "convex"
 
@@ -67,12 +74,13 @@ def post_process(sub):
 
             path = os.path.join("cloudsimg/test_images", test_img)
             img = cv2.imread(path).astype(np.float32)
+            img = cv2.resize(img, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
             img = img / 255.0
             img2 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
             img_label_list.append(f"{test_img}_{class_name}")
 
-            mask = make_mask(sub, test_img + "_" + class_name, shape=(350, 525))
+            mask = new_make_mask(sub, test_img + "_" + class_name, shape=(350, 525))
             if True:
                 mask = draw_convex_hull(mask.astype(np.uint8), mode=mode)
             mask[img2 <= 2 / 255.0] = 0
@@ -114,3 +122,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    #sub = pd.read_csv('sumbissions/submission_new.csv')
+    #post_process_new(sub)

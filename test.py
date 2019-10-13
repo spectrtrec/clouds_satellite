@@ -29,7 +29,7 @@ def flip_tensor_lr(images):
 
 
 def tta(model, images):
-    predictions = model(model, images)
+    predictions = model(images)
     predictions_lr = model(flip_tensor_lr(images))
     predictions_lr = flip_tensor_lr(predictions_lr)
     predictions_tta = torch.stack([predictions, predictions_lr]).mean(0)
@@ -57,7 +57,6 @@ def build_checkpoints_list(cfg, tfg):
     for fold_id in usefolds:
         filename = f"validation_fold_{fold_id}.csv"
         val_list.append(tfg["IDS_FILES"]["TRAIN_FILE"] + filename)
-    print(val_list)
     if cfg.get("SUBMIT_BEST", False):
         best_checkpoints_folder = Path(pipeline_path, cfg["CHECKPOINTS"]["BEST_FOLDER"])
 
@@ -120,7 +119,7 @@ def main():
     num_workers = inference_config["NUM_WORKERS"]
 
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
-
+    torch.cuda.empty_cache()
     model = smp.Unet(
         encoder_name="efficientnet-b3",
         encoder_weights="imagenet",
@@ -141,22 +140,9 @@ def main():
     )
 
     train_path = os.path.join(os.getcwd(), train_config["TRAIN_PATH"])
-
-    checkpoints_list, vald_df = build_checkpoints_list(inference_config, train_config)
+    checkpoints_list, _ = build_checkpoints_list(inference_config, train_config)
+    print(checkpoints_list)
     for pred_idx, checkpoint_path in enumerate(checkpoints_list):
-        validation = pd.read_csv(str(vald_df[pred_idx]), names=["im_id"], header=None)
-        valid_dataset = CloudDataset(
-            train_df,
-            train_path,
-            "valid",
-            validation["im_id"].values,
-            get_validation_augmentation(),
-            get_preprocessing(preprocessing_fn),
-        )
-        valid_loader = DataLoader(
-            valid_dataset, batch_size=12, shuffle=False, num_workers=8
-        )
-
         torch.cuda.empty_cache()
         result = [
             y.strip() for x in str(checkpoint_path).split(".") for y in x.split("/")
@@ -164,7 +150,6 @@ def main():
         state = torch.load(checkpoint_path)
         model.load_state_dict(state["state_dict"])
         model.eval()
-        # val_score(model, valid_loader, valid_dataset)
         current_mask_dict = predict(test_loader, model)
         result_path = Path(dict_dir, result[3] + result[4] + ".pkl")
         with open(result_path, "wb") as handle:

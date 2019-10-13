@@ -220,6 +220,7 @@ def prepare_train(path: str):
 #     df_train[["im_id", "fold"]].sample(frac=1, random_state=123)
 #     return df_train
 
+
 def val_score(model, val_load, vald_dataset):
     valid_masks = []
     attempts = []
@@ -242,6 +243,7 @@ def val_score(model, val_load, vald_dataset):
                 )
             probabilities[i * 4 + j, :, :] = probability
     threshold, size = best_threshold(probabilities, valid_masks, attempts)
+
 
 def generate_folds(files_train: pd.DataFrame, n_fold: int) -> None:
     kf = KFold(n_splits=n_fold, shuffle=True, random_state=100)
@@ -301,3 +303,48 @@ def init_logger(directory, log_file_name):
     logger.addHandler(handler)
     logger.addHandler(logging.StreamHandler(sys.stdout))
     return logger
+
+
+def draw_convex_hull(mask, mode="convex"):
+
+    img = np.zeros(mask.shape)
+    contours, hier = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    for c in contours:
+        if mode == "rect":  # simple rectangle
+            x, y, w, h = cv2.boundingRect(c)
+            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 255, 255), -1)
+        elif mode == "convex":  # minimum convex hull
+            hull = cv2.convexHull(c)
+            cv2.drawContours(img, [hull], 0, (255, 255, 255), -1)
+        elif mode == "approx":
+            epsilon = 0.02 * cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, epsilon, True)
+            cv2.drawContours(img, [approx], 0, (255, 255, 255), -1)
+        else:  # minimum area rectangle
+            rect = cv2.minAreaRect(c)
+            box = cv2.boxPoints(rect)
+            box = np.int0(box)
+            cv2.drawContours(img, [box], 0, (255, 255, 255), -1)
+    return img / 255.0
+
+
+min_size = [10000, 10000, 10000, 10000]
+
+
+def post_process_minsize(mask, min_size):
+    """
+    Post processing of each predicted mask, components with lesser number of pixels
+    than `min_size` are ignored
+    """
+
+    num_component, component = cv2.connectedComponents(mask.astype(np.uint8))
+    predictions = np.zeros(mask.shape)
+    num = 0
+    for c in range(1, num_component):
+        p = component == c
+        if p.sum() > min_size:
+            predictions[p] = 1
+            num += 1
+    return predictions  # , num
+

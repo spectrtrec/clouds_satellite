@@ -104,8 +104,10 @@ venv.bak/
 .mypy_cache/
 # folders
 cloudsimg/
+clouds_resized/
 .vscode/
 #files
 *.csv
 *.pth
 *.zip
+*.pkl

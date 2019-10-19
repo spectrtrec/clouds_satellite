@@ -26,13 +26,13 @@ from pytorchtrain import PytorchTrainer
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--train_path",
-    default="cloudsimg/train_images",
+    default="clouds_resized/train_images_525",
     type=str,
     help="Original train image path",
 )
 parser.add_argument(
     "--test_path",
-    default="cloudsimg/test_images",
+    default="clouds_resized/test_images_525",
     type=str,
     help="Original train image path",
 )
@@ -47,15 +47,15 @@ if __name__ == "__main__":
         os.path.join(os.getcwd(), "", 'cloudsimg'))
     train_id, valid_id, test_id = prepare_ids(train_df, submission)
     model = smp.Unet(
-        encoder_name='efficientnet-b3',
+        encoder_name='efficientnet-b2',
         encoder_weights='imagenet',
         classes=4,
         activation=None,
     )
     preprocessing_fn = smp.encoders.get_preprocessing_fn(
-        'efficientnet-b3', 'imagenet')
-    num_workers = 8
-    bs = 8
+        'efficientnet-b2', 'imagenet')
+    num_workers = 10
+    bs = 10
 
     train_dataset = CloudDataset(train_df, train_path, test_path, 'train', train_id, get_training_augmentation(
     ), get_preprocessing(preprocessing_fn))
@@ -69,11 +69,11 @@ if __name__ == "__main__":
     valid_loader = DataLoader(
         valid_dataset, batch_size=bs, shuffle=False, num_workers=num_workers)
 
-    test_loader = DataLoader(test_dataset, batch_size=4,
+    test_loader = DataLoader(test_dataset, batch_size=2,
                              shuffle=False, num_workers=num_workers)
     pytorchtrain = PytorchTrainer(
         train_loader, valid_loader, train_dataset, valid_dataset, model)
     #pytorchtrain.start()
     #threshold, size = pytorchtrain.val_score(valid_loader, valid_dataset)
     #print(threshold, size)
-    pytorchtrain.predict(test_loader, submission, pytorchtrain.net, 0.3, 10000)
+    pytorchtrain.predict(test_loader, submission, pytorchtrain.net, 0.6, 10000)

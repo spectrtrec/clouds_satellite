@@ -13,6 +13,7 @@ from torch.optim import lr_scheduler
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SubsetRandomSampler
+from torch.nn.utils import clip_grad_norm_
 
 import segmentation_models_pytorch as smp
 from dataloader import *
@@ -30,18 +31,23 @@ class PytorchTrainer(object):
     def __init__(
         self, train_dataloader, validation_dataloader, train_data, val_data, model
     ):
-        self.num_epochs = 120
+        self.num_epochs = 80
         self.net = model
         self.best_loss = float("inf")
         self.dataloaders = [train_dataloader, validation_dataloader]
         self.phases = ["train", "val"]
         self.device = torch.device("cuda:0")
         self.criterion = smp.utils.losses.BCEDiceLoss(eps=1.0)
-        self.optimizer = torch.optim.Adam([
-            {'params': self.net.decoder.parameters(), 'lr': 1e-2},
-            {'params': self.net.encoder.parameters(), 'lr': 1e-3}, ])
+        self.grad_accum = 1
+        self.grad_clip = 0.1
+        self.optimizer = torch.optim.Adam(
+            [
+                {"params": self.net.decoder.parameters(), "lr": 1e-2},
+                {"params": self.net.encoder.parameters(), "lr": 1e-3},
+            ]
+        )
         # self.scheduler = ReduceLROnPlateau(
-        #     self.optimizer, factor=0.15, patience=2)
+        #     self.optimizer, mode='min', factor=0.15, patience=2, threshold=0.0000001, min_lr=0.0000001)
         self.scheduler = CosineAnnealingLR(self.optimizer, 8, 0.0000001)
         self.net = self.net.to(self.device)
         self.dataloaders = {
@@ -81,15 +87,15 @@ class PytorchTrainer(object):
                 "optimizer": self.optimizer.state_dict(),
             }
             val_loss = self.test(epoch, "val")
-            if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
-                self.scheduler.step(val_loss)
-            else:
-                self.scheduler.step()
             if val_loss < self.best_loss:
                 print("********New optimal found, saving state********")
                 self.best_loss = val_loss
                 state["best_loss"] = self.best_loss
                 torch.save(state, "weights/model.pth")
+            if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
+                self.scheduler.step(val_loss)
+            else:
+                self.scheduler.step()
 
     def test(self, epoch, phase):
         start = time.strftime("%H:%M:%S")
@@ -116,12 +122,23 @@ class PytorchTrainer(object):
         )
         return epoch_loss
 
+    def flip_tensor_lr(self, images):
+        invert_indices = torch.arange(images.data.size()[-1] - 1, -1, -1).long()
+        return images.index_select(3, invert_indices.cuda())
+
+    def tta(self, model, images):
+        predictions = model(images)
+        predictions_lr = model(self.flip_tensor_lr(images))
+        predictions_lr = self.flip_tensor_lr(predictions_lr)
+        predictions_tta = torch.stack([predictions, predictions_lr]).mean(0)
+        return predictions_tta
+
     def inference_image(self, img, model):
-        inputs = img.to(device)
-        batch = model(inputs)
+        batch = model(img)
         return batch.cpu().detach().numpy()
 
     def predict(self, test_loader, sub, py_model, threshold, size):
+        torch.cuda.empty_cache()
         model = py_model
         model.eval()
         state = torch.load(
@@ -130,14 +147,9 @@ class PytorchTrainer(object):
         model.load_state_dict(state["state_dict"])
         encoded_pixels = []
         for _, inputs in enumerate(test_loader):
-            masks = self.inference_image(inputs[0], model)
-            print(masks.shape)
-            flipped_imgs = torch.flip(inputs[0], dims=(3,))
-            flipped_masks = self.inference_image(flipped_imgs, model)
-            print(flipped_masks.shape)
-            flipped_masks = np.flip(flipped_masks, axis=2)
-            masks = (masks + flipped_masks) / 2
-            for _, probability in enumerate(masks):
+            input_ = inputs[0].to(device)
+            masks = self.tta(model, input_)
+            for _, probability in enumerate(masks.cpu().detach().numpy()):
                 for prop in probability:
                     if prop.shape != (350, 525):
                         prop = cv2.resize(

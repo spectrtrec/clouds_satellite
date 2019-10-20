@@ -106,10 +106,6 @@ class PytorchTrainer(object):
                 "optimizer": self.optimizer.state_dict(),
             }
             val_loss = self.test(epoch, "val")
-            if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
-                self.scheduler.step(val_loss)
-            else:
-                self.scheduler.step()
 
             checkpoints_history_path = Path(
                 self.checkpoints_history_folder,
@@ -117,23 +113,29 @@ class PytorchTrainer(object):
             )
             torch.save(state, checkpoints_history_path)
             heapq.heappush(self.score_heap, (val_loss, checkpoints_history_path))
+
             if len(self.score_heap) > self.checkpoints_topk:
                 _, removing_checkpoint_path = heapq.heappop(self.score_heap)
                 removing_checkpoint_path.unlink()
                 self.logger.info(
                     "Removed checkpoint is {}".format(removing_checkpoint_path)
                 )
+
             if val_loss < self.best_loss:
                 self.logger.info("********New optimal found, saving state********")
                 self.best_loss = val_loss
                 state["best_loss"] = self.best_loss
                 torch.save(state, self.best_checkpoint_path)
 
+            if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
+                self.scheduler.step(val_loss)
+            else:
+                self.scheduler.step()
+
     def test(self, epoch, phase):
         start = time.strftime("%H:%M:%S")
         self.logger.info(f"Starting epoch: {epoch+1} | phase: {phase} | {start}")
-        running_loss = 0.0
-        running_loss_dice = 0.0
+        running_loss, running_loss_dice = 0.0
         self.net.eval()
         data_size = self.validation_data.__len__()
         dataloader = self.dataloaders[phase]

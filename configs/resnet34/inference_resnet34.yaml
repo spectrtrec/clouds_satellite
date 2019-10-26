@@ -1,0 +1,16 @@
+
+NUM_WORKERS: 10
+BATCH_SIZE: 2
+
+CHECKPOINTS:
+  FULL_FOLDER: checkpoints
+  BEST_FOLDER: checkpoints/best
+  PIPELINE_PATH: configs/resnet34
+  PIPELINE_NAME: resnet34
+
+DICT_FOLDER: 'dict_resnet34'
+SUBMIT_BEST: FALSE
+USEFOLDS: [0]
+SELECTED_CHECKPOINTS:
+  fold0: [0,1,86,89]
+SULT: result_top3_folds.pkl

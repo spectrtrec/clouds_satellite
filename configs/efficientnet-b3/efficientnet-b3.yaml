@@ -1,7 +1,7 @@
 PIPELINE_NAME: efficientnet-b3
 TRAIN_PATH: 'cloudsimg/train_images'
 TEST_PATH: 'cloudsimg/test_images'
-PREPARE_FOLDS: True
+PREPARE_FOLDS: FALSE
 LOGGER_DIR: 'log'
 
 IDS_FILES:
@@ -11,21 +11,21 @@ IDS_FILES:
 CHECKPOINTS:
   FULL_FOLDER: checkpoints
   BEST_FOLDER: checkpoints/best
-  TOPK: 8
+  TOPK: 4
 
-WORKERS: 8
-BATCH_SIZE: 8
-EPOCHES: 30
+WORKERS: 10
+BATCH_SIZE: 10
+EPOCHES: 90
 
 FOLD:
-  NUMBER: 8
-  USEFOLDS: [0,1,2,3,4,5,6,7]
+  NUMBER: 1
+  USEFOLDS: [0]
 
 OPTIMIZER:
   CLASS: Adam
   ARGS:
-    lr: 0.00001
-    weight_decay: 0.000005
+    lr: 0.000075
+    weight_decay: 0.00001
     
 SCHEDULER:
  CLASS: CosineAnnealingLR

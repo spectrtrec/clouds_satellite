@@ -1,6 +1,6 @@
 
-NUM_WORKERS: 8
-BATCH_SIZE: 4
+NUM_WORKERS: 10
+BATCH_SIZE: 3
 
 CHECKPOINTS:
   FULL_FOLDER: checkpoints
@@ -9,8 +9,12 @@ CHECKPOINTS:
   PIPELINE_NAME: se_resnext50_32
 
 DICT_FOLDER: 'dict_se_resnext50_32'
-SUBMIT_BEST: True
-USEFOLDS: [0,1,2,3,4,5,6,7]
+SUBMIT_BEST: False
+USEFOLDS: [0,1,2,3,4]
 SELECTED_CHECKPOINTS:
-  fold7: [57,59]
+  fold0: [0,2,9, 51]
+  fold1: [43,56,57,59]
+  fold2: [50,55,56,58]
+  fold3: [54,57,58,59]
+  fold4: [54,56,58,59]
 RESULT: result_top3.pkl

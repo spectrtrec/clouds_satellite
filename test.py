@@ -18,7 +18,7 @@ from tqdm import tqdm
 import segmentation_models_pytorch as smp
 from dataloader import *
 from pytorchtrain import PytorchTrainer
-from utils.utils import init_logger, init_seed, load_yaml, best_threshold
+from utils.utils import init_logger, init_seed, load_yaml
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -38,10 +38,10 @@ def tta(model, images):
 
 def predict(loader, model):
     mask_dict = {}
-    for inputs, _, image_name in loader:
-        images = inputs.to(device)
+    for _, inputs in enumerate(loader):
+        images = inputs[0].to(device)
         batch = tta(model, images)
-        for img, probability in zip(image_name, batch.cpu().detach().numpy()):
+        for img, probability in zip(inputs[2], batch.squeeze(1).cpu().detach().numpy()):
             for i, prop in enumerate(probability):
                 mask_dict[img + str(i)] = sigmoid(prop).astype(np.float32)
     return mask_dict
@@ -89,7 +89,6 @@ def build_masks_list(dict_folder):
 def avarage_masks(plk_list, experiment_folder, config):
     mask_dict = defaultdict(int)
     for pred_idx, file_name in enumerate(plk_list):
-        print(file_name)
         with open(Path(file_name), "rb") as handle:
             current_mask_dict = pickle.load(handle)
         for name, mask in tqdm(current_mask_dict.items()):
@@ -102,9 +101,9 @@ def avarage_masks(plk_list, experiment_folder, config):
 
 def main():
     config_path = Path(
-        "configs/efficientnet-b3/inference_efficientnet-b3.yaml".strip("/")
+        "configs/se_resnext50_32/inference_se_resnext50_32.yaml".strip("/")
     )
-    config_folder = Path("configs/efficientnet-b3/efficientnet-b3.yaml".strip("/"))
+    config_folder = Path("configs/se_resnext50_32/se_resnext50_32.yaml".strip("/"))
 
     experiment_folder = config_path.parents[0]
     inference_config = load_yaml(config_path)
@@ -119,19 +118,20 @@ def main():
     num_workers = inference_config["NUM_WORKERS"]
 
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
+    train_id, valid_id, test_id = prepare_ids(train_df, submission)
     torch.cuda.empty_cache()
     model = smp.Unet(
-        encoder_name="efficientnet-b3",
+        encoder_name="se_resnext50_32x4d",
         encoder_weights="imagenet",
         classes=4,
         activation=None,
     )
-    preprocessing_fn = smp.encoders.get_preprocessing_fn("efficientnet-b3", "imagenet")
+    preprocessing_fn = smp.encoders.get_preprocessing_fn("se_resnext50_32x4d", "imagenet")
     test_dataset = CloudDataset(
         submission,
         test_path,
         "test",
-        test_ids["im_id"].values,
+        test_id,
         get_validation_augmentation(),
         get_preprocessing(preprocessing_fn),
     )
@@ -147,8 +147,7 @@ def main():
         result = [
             y.strip() for x in str(checkpoint_path).split(".") for y in x.split("/")
         ]
-        state = torch.load(checkpoint_path)
-        model.load_state_dict(state["state_dict"])
+        model.load_state_dict(torch.load(checkpoint_path))
         model.eval()
         current_mask_dict = predict(test_loader, model)
         result_path = Path(dict_dir, result[3] + result[4] + ".pkl")

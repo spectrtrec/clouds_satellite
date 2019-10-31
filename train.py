@@ -84,10 +84,6 @@ def train_fold(
 
     pytorchtrain = PytorchTrainer(
         train_config["EPOCHES"],
-        train_loader,
-        valid_loader,
-        train_dataset,
-        valid_dataset,
         model,
         optimizer,
         scheduler,
@@ -97,11 +93,11 @@ def train_fold(
         checkpoints_topk,
         checkpoints_history_folder,
     )
-    pytorchtrain.start()
+    pytorchtrain.run_train(train_loader, valid_loader)
 
 
 if __name__ == "__main__":
-    config_folder = Path("configs/efficientnet-b3/efficientnet-b3.yaml".strip("/"))
+    config_folder = Path("configs/se_resnext50_32/se_resnext50_32.yaml".strip("/"))
     experiment_folder = config_folder.parents[0]
 
     train_config = load_yaml(config_folder)
@@ -114,17 +110,19 @@ if __name__ == "__main__":
     main_logger = init_logger(log_dir, "train_main.log")
 
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
+    #train_id, valid_id, test_id = prepare_ids(train_df, submission)
     if train_config["PREPARE_FOLDS"]:
-        prepare_ids(train_df, submission, 8)
+        print("prepare")
+        prepare_ids(train_df, submission, 5)
 
     model = smp.Unet(
-        encoder_name="efficientnet-b3",
+        encoder_name="se_resnext50_32x4d",
         encoder_weights="imagenet",
         classes=4,
         activation=None,
     )
     preprocessing_fn = smp.encoders.get_preprocessing_fn(
-        "efficientnet-b3", "imagenet"
+        "se_resnext50_32x4d", "imagenet"
     )
     num_workers = train_config["WORKERS"]
     batch_size = train_config["BATCH_SIZE"]
@@ -145,8 +143,8 @@ if __name__ == "__main__":
             batch_size,
             num_workers,
             train_df,
-            df_train["im_id"].values,
-            df_valid["im_id"].values,
+            df_train['im_id'].values,
+            df_valid['im_id'].values,
             train_path,
             experiment_folder,
             fold_id,

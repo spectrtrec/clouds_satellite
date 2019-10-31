@@ -21,6 +21,8 @@ import segmentation_models_pytorch as smp
 from dataloader import *
 from utils.loss import *
 from utils.utils import *
+from torch.nn.utils import clip_grad_norm_
+from tqdm import tqdm
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -33,10 +35,6 @@ class PytorchTrainer(object):
     def __init__(
         self,
         epochs,
-        train_dataloader,
-        validation_dataloader,
-        train_data,
-        val_data,
         model,
         optimizer,
         sheduler,
@@ -48,27 +46,16 @@ class PytorchTrainer(object):
     ):
         self.num_epochs = epochs
         self.net = model
-        self.best_loss = float("inf")
-        self.dataloaders = [train_dataloader, validation_dataloader]
-        self.phases = ["train", "val"]
+        self.best_score = float("inf")
+        self.freeze_model = False
         self.device = torch.device("cuda:0")
         self.criterion = smp.utils.losses.BCEDiceLoss(eps=1.0)
-        self.optimizer = torch.optim.Adam(
-            [
-                {"params": self.net.decoder.parameters(), "lr": 1e-2},
-                {"params": self.net.encoder.parameters(), "lr": 1e-3},
-            ]
-        )
+        self.grad_clip = 0.1
+        self.grad_accum = 1
+        self.optimizer = torch.optim.Adam(self.net.parameters())
         self.scheduler = sheduler
-        self.net = self.net.to(self.device)
-        self.dataloaders = {
-            phase: self.dataloaders[i] for i, phase in enumerate(self.phases)
-        }
         self.checkpoints_topk = checkpoints_topk
         self.score_heap = []
-        self.traindata = train_data
-        self.validation_data = val_data
-        self.losses = {phase: [] for phase in self.phases}
         self.calculation_name = calculation_name
         self.best_checkpoint_path = Path(
             best_checkpoint_folder, "{}.pth".format(self.calculation_name)
@@ -76,85 +63,65 @@ class PytorchTrainer(object):
         self.checkpoints_history_folder = Path(checkpoints_history_folder)
         self.logger = logger
 
-    def train(self, epoch, phase):
-        start = time.strftime("%H:%M:%S")
-        self.logger.info(f"Starting epoch: {epoch} | phase: {phase} | : {start}")
-        running_loss = 0.0
-        data_size = self.traindata.__len__()
-        dataloader = self.dataloaders[phase]
-        self.net.train()
-        for inputs, masks, _ in dataloader:
-            inputs, masks = inputs.to(device), masks.to(device)
-            with torch.set_grad_enabled(True):
-                logit = self.net(inputs)
-                loss = self.criterion(logit, masks)
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-            running_loss += loss.item() * inputs.size(0)
-        epoch_loss = running_loss / data_size
-        print("phase {} epoch: {} loss: {:.3f}".format(phase, epoch, epoch_loss))
-        return epoch_loss
+    def train_epoch(self, model, loader):
+        tqdm_loader = tqdm(loader)
+        current_loss_mean = 0
 
-    def start(self):
-        for epoch in range(self.num_epochs):
-            self.train(epoch, "train")
-            state = {
-                "epoch": epoch,
-                "best_loss": self.best_loss,
-                "state_dict": self.net.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-            }
-            val_loss = self.test(epoch, "val")
+        for batch_idx, (imgs, labels, _) in enumerate(tqdm_loader):
+            loss, predicted = self.batch_train(model, imgs, labels, batch_idx)
 
-            checkpoints_history_path = Path(
-                self.checkpoints_history_folder,
-                "{}_epoch{}.pth".format(self.calculation_name, epoch),
+            # just slide average
+            current_loss_mean = (current_loss_mean * batch_idx + loss) / (batch_idx + 1)
+
+            tqdm_loader.set_description(
+                "loss: {:.4} lr:{:.6}".format(
+                    current_loss_mean, self.optimizer.param_groups[0]["lr"]
+                )
             )
-            torch.save(state, checkpoints_history_path)
-            heapq.heappush(self.score_heap, (val_loss, checkpoints_history_path))
+        return current_loss_mean
 
-            if len(self.score_heap) > self.checkpoints_topk:
-                _, removing_checkpoint_path = heapq.heappop(self.score_heap)
-                removing_checkpoint_path.unlink()
-                self.logger.info(
-                    "Removed checkpoint is {}".format(removing_checkpoint_path)
+    def batch_train(self, model, batch_imgs, batch_labels, batch_idx):
+        batch_imgs, batch_labels = (
+            batch_imgs.to(self.device),
+            batch_labels.to(self.device),
+        )
+        predicted = model(batch_imgs)
+        loss = self.criterion(predicted, batch_labels)
+
+        loss.backward()
+        if batch_idx % self.grad_accum == self.grad_accum - 1:
+            clip_grad_norm_(self.net.parameters(), self.grad_clip)
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+        return loss.item(), predicted
+
+    def valid_epoch(self, loader):
+        tqdm_loader = tqdm(loader)
+        current_score_mean = 0
+        current_dce_mean = 0
+        for batch_idx, (imgs, labels, _) in enumerate(tqdm_loader):
+            with torch.no_grad():
+                predicted, batch_lables = self.batch_valid(imgs, labels)
+                score = self.criterion(predicted, batch_lables)
+                current_score_mean = (current_score_mean * batch_idx + score) / (
+                    batch_idx + 1
+                )
+                dce_score = dice_loss(predicted, batch_lables)
+                current_dce_mean = (current_dce_mean * batch_idx + dce_score) / (
+                    batch_idx + 1
+                )
+                tqdm_loader.set_description(
+                    "score_bce, score_dce: {:.5}, {:.5} ".format(
+                        current_score_mean, dce_score
+                    )
                 )
 
-            if val_loss < self.best_loss:
-                self.logger.info("********New optimal found, saving state********")
-                self.best_loss = val_loss
-                state["best_loss"] = self.best_loss
-                torch.save(state, self.best_checkpoint_path)
+        return current_score_mean, dce_score
 
-            if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
-                self.scheduler.step(val_loss)
-            else:
-                self.scheduler.step()
-
-    def test(self, epoch, phase):
-        start = time.strftime("%H:%M:%S")
-        self.logger.info(f"Starting epoch: {epoch+1} | phase: {phase} | {start}")
-        running_loss, running_loss_dice = 0.0
-        self.net.eval()
-        data_size = self.validation_data.__len__()
-        dataloader = self.dataloaders[phase]
-        for inputs, masks, _ in dataloader:
-            inputs, masks = inputs.to(device), masks.to(device)
-            with torch.set_grad_enabled(False):
-                outputs = self.net(inputs)
-                loss = self.criterion(outputs, masks)
-                loss_dice = dice_loss(outputs, masks)
-            running_loss += loss.item() * inputs.size(0)
-            running_loss_dice += loss_dice.item() * inputs.size(0)
-        epoch_loss = running_loss / data_size
-        epoch_loss_dice = running_loss_dice / data_size
-        self.logger.info(
-            "phase {} epoch: {} loss: {:.3f} dice_loss: {:.3f}".format(
-                phase, epoch, epoch_loss, epoch_loss_dice
-            )
-        )
-        return epoch_loss
+    def batch_valid(self, batch_imgs, batch_lable):
+        batch_imgs = batch_imgs.to(self.device)
+        predicted = self.net(batch_imgs)
+        return predicted, batch_lable.to(self.device)
 
     @staticmethod
     def get_state_dict(model):
@@ -164,27 +131,51 @@ class PytorchTrainer(object):
             state_dict = model.state_dict()
         return state_dict
 
-    @staticmethod
-    def val_score(model, val_load, vald_dataset):
-        valid_masks = []
-        attempts = []
-        probabilities = np.zeros((2220, 350, 525))
-        for i, output in enumerate(val_load):
-            inputs, masks = output
-            inputs, masks = inputs.to(device), masks.to(device)
-            with torch.set_grad_enabled(False):
-                predict = model(inputs)
-                predict = np.clip(predict.detach().cpu().numpy()[0], 0, 1)
-                masks = masks.detach().cpu().numpy()[0]
-            for m in masks:
-                if m.shape != (350, 525):
-                    m = cv2.resize(m, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
-                valid_masks.append(m)
-            for j, probability in enumerate(predict):
-                if probability.shape != (350, 525):
-                    probability = cv2.resize(
-                        probability, dsize=(525, 350), interpolation=cv2.INTER_LINEAR
+    def post_processing(self, score, epoch, model):
+
+        checkpoints_history_path = Path(
+            self.checkpoints_history_folder,
+            "{}_epoch{}.pth".format(self.calculation_name, epoch),
+        )
+        torch.save(self.get_state_dict(model), checkpoints_history_path)
+        heapq.heappush(self.score_heap, (score, checkpoints_history_path))
+        if len(self.score_heap) > self.checkpoints_topk:
+            _, removing_checkpoint_path = heapq.heappop(self.score_heap)
+            removing_checkpoint_path.unlink()
+            self.logger.info(
+                "Removed checkpoint is {}".format(removing_checkpoint_path)
+            )
+        if score < self.best_score:
+            self.best_score = score
+            torch.save(self.get_state_dict(model), self.best_checkpoint_path)
+            self.logger.info("best model: {} epoch - {:.5}".format(epoch, score))
+
+        if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
+            self.scheduler.step(score)
+        else:
+            self.scheduler.step()
+
+    def run_train(self, train_dataloader, valid_dataloader):
+        self.net.to(self.device)
+        for epoch in range(self.num_epochs):
+            if not self.freeze_model:
+                self.logger.info("{} epoch: \t start training....".format(epoch))
+                self.net.train()
+                train_loss_mean = self.train_epoch(self.net, train_dataloader)
+                self.logger.info(
+                    "{} epoch: \t Calculated train loss: {:.5}".format(
+                        epoch, train_loss_mean
                     )
-                probabilities[i * 4 + j, :, :] = probability
-        threshold, size = best_threshold(probabilities, valid_masks, attempts)
-        return threshold, size
+                )
+
+            self.logger.info("{} epoch: \t start validation....".format(epoch))
+            self.net.eval()
+            val_score, dce = self.valid_epoch(valid_dataloader)
+            self.logger.info(
+                    "{} epoch: \t Calculated vall loss: {:.5}, dce - {:.5}".format(
+                        epoch, val_score, dce
+                    )
+            )
+            self.post_processing(val_score, epoch, self.net)
+
+        return self.best_score

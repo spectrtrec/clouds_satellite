@@ -18,10 +18,15 @@ from tqdm import tqdm
 import segmentation_models_pytorch as smp
 from dataloader import *
 from pytorchtrain import PytorchTrainer
-from utils.utils import init_logger, init_seed, load_yaml
+from utils.utils import init_seed, load_yaml
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str)
+    parser.add_argument("--encoder_name", type=str)
+    return parser.parse_args()
 
 def flip_tensor_lr(images):
     invert_indices = torch.arange(images.data.size()[-1] - 1, -1, -1).long()
@@ -41,7 +46,7 @@ def predict(loader, model):
     for _, inputs in enumerate(loader):
         images = inputs[0].to(device)
         batch = tta(model, images)
-        for img, probability in zip(inputs[2], batch.squeeze(1).cpu().detach().numpy()):
+        for img, probability in zip(inputs[1], batch.cpu().detach().numpy()):
             for i, prop in enumerate(probability):
                 mask_dict[img + str(i)] = sigmoid(prop).astype(np.float32)
     return mask_dict
@@ -82,7 +87,6 @@ def build_masks_list(dict_folder):
     checkpoints_list = []
     for filename in sorted(glob.glob(str(dict_folder) + "/*")):
         checkpoints_list.append(filename)
-    print(checkpoints_list)
     return checkpoints_list
 
 
@@ -100,38 +104,37 @@ def avarage_masks(plk_list, experiment_folder, config):
 
 
 def main():
+    args = parse_args()
     config_path = Path(
-        "configs/se_resnext50_32/inference_se_resnext50_32.yaml".strip("/")
+        args.config.strip("/")
     )
-    config_folder = Path("configs/se_resnext50_32/se_resnext50_32.yaml".strip("/"))
 
     experiment_folder = config_path.parents[0]
     inference_config = load_yaml(config_path)
     dict_dir = Path(experiment_folder, inference_config["DICT_FOLDER"])
     dict_dir.mkdir(exist_ok=True, parents=True)
-    train_config = load_yaml(config_folder)
-    test_path = os.path.join(os.getcwd(), train_config["TEST_PATH"])
+    test_path = os.path.join(os.getcwd(), inference_config["TEST_PATH"])
     test_ids = pd.read_csv(
-        os.path.join(os.getcwd(), train_config["IDS_FILES"]["TEST_FILE"])
+        os.path.join(os.getcwd(), inference_config["IDS_FILES"]["TEST_FILE"])
     )
     batch_size = inference_config["BATCH_SIZE"]
     num_workers = inference_config["NUM_WORKERS"]
 
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
-    train_id, valid_id, test_id = prepare_ids(train_df, submission)
-    torch.cuda.empty_cache()
     model = smp.Unet(
-        encoder_name="se_resnext50_32x4d",
-        encoder_weights="imagenet",
-        classes=4,
-        activation=None,
+            encoder_name=args.encoder_name,
+            encoder_weights="imagenet",
+            classes=4,
+            activation=None,
+        ).to(device)
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(
+            args.encoder_name, "imagenet"
     )
-    preprocessing_fn = smp.encoders.get_preprocessing_fn("se_resnext50_32x4d", "imagenet")
     test_dataset = CloudDataset(
         submission,
         test_path,
+        test_ids["im_id"].values,
         "test",
-        test_id,
         get_validation_augmentation(),
         get_preprocessing(preprocessing_fn),
     )
@@ -141,13 +144,12 @@ def main():
 
     train_path = os.path.join(os.getcwd(), train_config["TRAIN_PATH"])
     checkpoints_list, _ = build_checkpoints_list(inference_config, train_config)
-    print(checkpoints_list)
     for pred_idx, checkpoint_path in enumerate(checkpoints_list):
         torch.cuda.empty_cache()
         result = [
             y.strip() for x in str(checkpoint_path).split(".") for y in x.split("/")
         ]
-        model.load_state_dict(torch.load(checkpoint_path))
+        model.load_state_dict(torch.load(checkpoint_path)["state_dict"])
         model.eval()
         current_mask_dict = predict(test_loader, model)
         result_path = Path(dict_dir, result[3] + result[4] + ".pkl")

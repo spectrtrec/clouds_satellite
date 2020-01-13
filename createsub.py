@@ -23,7 +23,7 @@ def post_process(probability, threshold, min_size):
     than `min_size` are ignored
     """
     mask = cv2.threshold(probability, threshold, 1, cv2.THRESH_BINARY)[1]
-    num_component, component = cv2.connectedComponents(mask.astype(np.float32))
+    num_component, component = cv2.connectedComponents(mask.astype(np.uint8))
     predictions = np.zeros((350, 525), np.float32)
     num = 0
     for c in range(1, num_component):
@@ -39,7 +39,7 @@ def build_rle_dict(mask_dict):
     for name, mask in tqdm(mask_dict.items()):
         if mask.shape != (350, 525):
             mask = cv2.resize(mask, dsize=(525, 350), interpolation=cv2.INTER_LINEAR)
-        predict, num_predict = post_process(mask, 0.4, 10000)
+        predict, num_predict = post_process(mask, 0.7, 10000)
         if num_predict == 0:
             encoded_pixels.append("")
         else:
@@ -69,12 +69,10 @@ def load_mask_dict(cfg):
 
 def main():
     config_path = Path(
-        "configs/se_resnext50_32/submission_se_resnext50_32.yaml".strip("/")
+        "configs/resnet34/submission_resnet34.yaml".strip("/")
     )
     sub_config = load_yaml(config_path)
-
     sample_sub = pd.read_csv(sub_config["SAMPLE_SUB"])
-    print("start loading mask results....")
     mask_dict = load_mask_dict(sub_config)
     rle_dict = build_rle_dict(mask_dict)
     buid_submission(sample_sub, rle_dict)
@@ -82,5 +80,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    #sub = pd.read_csv('sumbissions/submission_new.csv')
-    #post_process_new(sub)

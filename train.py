@@ -1,3 +1,4 @@
+import argparse
 import os
 import time
 
@@ -17,10 +18,25 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SubsetRandomSampler
 
 import segmentation_models_pytorch as smp
-from dataloader import *
-from pytorchtrain import PytorchTrainer
+from callbacks.tenzorboard import *
+from torchmethods.dataloader import *
+from torchmethods.pytorchtrain import PytorchTrainer
 from utils.loss import *
 from utils.utils import *
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str)
+    return parser.parse_args()
+
+
+def callbacks(log_path, optimizer):
+    log_dir = Path(log_path)
+    callbacks = Callbacks(
+        [Logger(log_dir, optimizer), TensorBoard(str(log_dir), optimizer)]
+    )
+    return callbacks
 
 
 def train_fold(
@@ -34,23 +50,23 @@ def train_fold(
     train_path,
     experiment_folder,
     fold,
-    logger,
-    preprocessing_fn
+    log_dir,
+    preprocessing_fn,
 ):
 
     train_dataset = CloudDataset(
         train_df,
         train_path,
-        "train",
         train_id,
+        "train",
         get_training_augmentation(),
         get_preprocessing(preprocessing_fn),
     )
     valid_dataset = CloudDataset(
         train_df,
         train_path,
-        "valid",
         valid_id,
+        "validation",
         get_validation_augmentation(),
         get_preprocessing(preprocessing_fn),
     )
@@ -77,6 +93,7 @@ def train_fold(
 
     optimizer_class = getattr(torch.optim, train_config["OPTIMIZER"]["CLASS"])
     optimizer = optimizer_class(model.parameters(), **train_config["OPTIMIZER"]["ARGS"])
+    callback = callbacks(log_dir, optimizer)
     scheduler_class = getattr(
         torch.optim.lr_scheduler, train_config["SCHEDULER"]["CLASS"]
     )
@@ -84,58 +101,60 @@ def train_fold(
 
     pytorchtrain = PytorchTrainer(
         train_config["EPOCHES"],
+        train_loader,
+        valid_loader,
+        train_dataset,
+        valid_dataset,
         model,
         optimizer,
         scheduler,
         calculation_name,
         best_checkpoint_folder,
-        logger,
         checkpoints_topk,
         checkpoints_history_folder,
+        callback,
     )
-    pytorchtrain.run_train(train_loader, valid_loader)
+    pytorchtrain.fit(fold)
 
 
 if __name__ == "__main__":
-    config_folder = Path("configs/se_resnext50_32/se_resnext50_32.yaml".strip("/"))
+    args = parse_args()
+    init_seed()
+    config_folder = Path(args.config.strip("/"))
     experiment_folder = config_folder.parents[0]
-
     train_config = load_yaml(config_folder)
     train_path = os.path.join(os.getcwd(), train_config["TRAIN_PATH"])
-    test_path = os.path.join(os.getcwd(), train_config["TEST_PATH"])
-
     log_dir = Path(experiment_folder, train_config["LOGGER_DIR"])
-    log_dir.mkdir(exist_ok=True, parents=True)
-
-    main_logger = init_logger(log_dir, "train_main.log")
 
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
-    #train_id, valid_id, test_id = prepare_ids(train_df, submission)
     if train_config["PREPARE_FOLDS"]:
         print("prepare")
-        prepare_ids(train_df, submission, 5)
+        prepare_ids(train_df, submission, 3)
 
-    model = smp.Unet(
-        encoder_name="se_resnext50_32x4d",
-        encoder_weights="imagenet",
-        classes=4,
-        activation=None,
-    )
-    preprocessing_fn = smp.encoders.get_preprocessing_fn(
-        "se_resnext50_32x4d", "imagenet"
-    )
     num_workers = train_config["WORKERS"]
     batch_size = train_config["BATCH_SIZE"]
 
     usefolds = map(str, train_config["FOLD"]["USEFOLDS"])
 
     for fold_id in usefolds:
-        main_logger.info("Start training of {} fold....".format(fold_id))
+        log_dir = Path(
+            experiment_folder, train_config["LOGGER_DIR"] + "/fold_" + fold_id
+        )
         df_train = pd.read_csv(
             f"folds/train_fold_{fold_id}.csv", names=["im_id"], header=None
         )
         df_valid = pd.read_csv(
             f"folds/validation_fold_{fold_id}.csv", names=["im_id"], header=None
+        )
+
+        model = smp.Unet(
+            encoder_name=train_config["ENCODER"],
+            encoder_weights="imagenet",
+            classes=4,
+            activation=None,
+        )
+        preprocessing_fn = smp.encoders.get_preprocessing_fn(
+            train_config["ENCODER"], "imagenet"
         )
         train_fold(
             train_config,
@@ -143,11 +162,11 @@ if __name__ == "__main__":
             batch_size,
             num_workers,
             train_df,
-            df_train['im_id'].values,
-            df_valid['im_id'].values,
+            df_train["im_id"].values,
+            df_valid["im_id"].values,
             train_path,
             experiment_folder,
             fold_id,
-            main_logger,
-            preprocessing_fn
+            log_dir,
+            preprocessing_fn,
         )

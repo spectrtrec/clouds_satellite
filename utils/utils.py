@@ -158,14 +158,6 @@ def prepare_train(path: str):
     return train, sub
 
 
-# def generate_folds(files_train: list, n_fold: int) -> pd.DataFrame:
-#     df_train = pd.DataFrame(files_train, columns=["im_id"])
-#     fold_template = list(range(n_fold)) * 100500
-#     df_train["fold"] = fold_template[:df_train.shape[0]]
-#     df_train[["im_id", "fold"]].sample(frac=1, random_state=123)
-#     return df_train
-
-
 def generate_folds(df, files_train, mask_count, n_fold) -> None:
     kf = StratifiedKFold(n_splits=n_fold, shuffle=True, random_state=100)
     for idx, (train_indices, valid_indices) in enumerate(
@@ -181,38 +173,20 @@ def save_ids(ids: pd.DataFrame, name: str) -> None:
     ids.to_csv(os.path.join(get_project_root(), "", "folds", "", name), index=False)
 
 
-# def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame, folds: int) -> None:
-#     id_mask_count = (
-#         train.loc[train["EncodedPixels"].isnull() == False, "Image_Label"]
-#         .apply(lambda x: x.split("_")[0])
-#         .value_counts()
-#         .sort_index()
-#         .reset_index()
-#         .rename(columns={"index": "img_id", "Image_Label": "count"})
-#     )
-#     test_ids = (
-#         sub["Image_Label"].apply(lambda x: x.split("_")[0]).drop_duplicates().values
-#     )
-#     generate_folds(id_mask_count["img_id"], id_mask_count["img_id"].values, id_mask_count["count"], folds)
-#     save_ids(pd.DataFrame(test_ids, columns=["im_id"]), "test_id.csv")
-def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame):
+def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame, folds: int) -> None:
     id_mask_count = (
         train.loc[train["EncodedPixels"].isnull() == False, "Image_Label"]
         .apply(lambda x: x.split("_")[0])
         .value_counts()
+        .sort_index()
         .reset_index()
         .rename(columns={"index": "img_id", "Image_Label": "count"})
-    )
-    train_ids, valid_ids = train_test_split(
-        id_mask_count["img_id"].values,
-        random_state=42,
-        stratify=id_mask_count["count"],
-        test_size=0.1,
     )
     test_ids = (
         sub["Image_Label"].apply(lambda x: x.split("_")[0]).drop_duplicates().values
     )
-    return train_ids, valid_ids, test_ids
+    generate_folds(id_mask_count["img_id"], id_mask_count["img_id"].values, id_mask_count["count"], folds)
+    save_ids(pd.DataFrame(test_ids, columns=["im_id"]), "test_id.csv")
 
 
 def load_yaml(file_name):
@@ -227,20 +201,4 @@ def init_seed(SEED=42):
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
     torch.backends.cudnn.deterministic = True
-
-
-def init_logger(directory, log_file_name):
-    formatter = logging.Formatter(
-        "\n%(asctime)s\t%(message)s", datefmt="%m/%d/%Y %H:%M:%S"
-    )
-    log_path = Path(directory, log_file_name)
-    if log_path.exists():
-        log_path.unlink()
-    handler = logging.FileHandler(filename=log_path)
-    handler.setFormatter(formatter)
-
-    logger = logging.getLogger(log_file_name)
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    logger.addHandler(logging.StreamHandler(sys.stdout))
-    return logger
+    

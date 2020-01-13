@@ -2,6 +2,11 @@
 NUM_WORKERS: 10
 BATCH_SIZE: 2
 
+TEST_PATH: 'cloudsimg/test_images'
+IDS_FILES:
+    TRAIN_FILE: folds/
+    TEST_FILE: folds/test_id.csv
+
 CHECKPOINTS:
   FULL_FOLDER: checkpoints
   BEST_FOLDER: checkpoints/best
@@ -9,8 +14,12 @@ CHECKPOINTS:
   PIPELINE_NAME: efficientnet-b3
 
 DICT_FOLDER: 'dict_efficientnet-b3'
-SUBMIT_BEST: TRUE
-USEFOLDS: [0]
+SUBMIT_BEST: FALSE
+USEFOLDS: [0,1,2,3,4]
 SELECTED_CHECKPOINTS:
-  fold0: [0,1,86,89]
-RESULT: result_top3_folds.pkl
+  fold0: [0,5,10,34]
+  fold1: [0,1,3,5]
+  fold2: [0,2,5,7]
+  fold3: [0,2,9,29]
+  fold4: [0,1,2,10]
+RESULT: result_top4_folds.pkl

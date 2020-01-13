@@ -9,8 +9,10 @@ CHECKPOINTS:
   PIPELINE_NAME: resnet34
 
 DICT_FOLDER: 'dict_resnet34'
-SUBMIT_BEST: True
-USEFOLDS: [0]
+SUBMIT_BEST: False
+USEFOLDS: [0,1,2]
 SELECTED_CHECKPOINTS:
-  fold0: [0,1,86,89]
-SULT: result_top3_folds.pkl
+  fold0: [0,3,4,6]
+  fold1: [0,2,3,5]
+  fold2: [0,2,3,8]
+RESULT: result_top4_resnet_folds.pkl

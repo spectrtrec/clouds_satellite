@@ -1,0 +1,5 @@
+SAMPLE_SUB: cloudsimg/sample_submission.csv
+MASK_DICT: configs/resnet34/result_top4_resnet_folds.pkl
+
+
+SUB_FILE: 2nd_stage_resnet50.csv

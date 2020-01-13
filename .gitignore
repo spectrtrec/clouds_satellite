@@ -99,12 +99,20 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
+.vscode
 # mypy
 .mypy_cache/
 # folders
-cloudsimg/
+cloudsimg/test_images
+cloudsimg/train_images
+clouds_resized/
 #files
 *.csv
 *.pth
 *.zip
+*.pkl
+*.txt
+*.pop-os
+ipynb_checkpoints
+checkpoints
+log

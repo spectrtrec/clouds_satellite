@@ -11,11 +11,14 @@ import os
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-from utils.utils import (
-    load_yaml,
-    mask2rle,
-    sigmoid
-)
+from utils.utils import load_yaml, mask2rle, sigmoid
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str)
+    return parser.parse_args()
+
 
 def post_process(probability, threshold, min_size):
     """
@@ -48,12 +51,10 @@ def build_rle_dict(mask_dict):
     return encoded_pixels
 
 
-def buid_submission(sub, encoded_pixels):
+def buid_submission(sub, encoded_pixels, sub_name):
     sub["EncodedPixels"] = pd.Series(encoded_pixels)
     sub.to_csv(
-        "sumbissions/submission.csv",
-        columns=["Image_Label", "EncodedPixels"],
-        index=False,
+        f"sumbissions/{sub_name}", columns=["Image_Label", "EncodedPixels"], index=False
     )
     return sub
 
@@ -68,14 +69,12 @@ def load_mask_dict(cfg):
 
 
 def main():
-    config_path = Path(
-        "configs/resnet34/submission_resnet34.yaml".strip("/")
-    )
+    config_path = Path(args.config.strip("/"))
     sub_config = load_yaml(config_path)
     sample_sub = pd.read_csv(sub_config["SAMPLE_SUB"])
     mask_dict = load_mask_dict(sub_config)
     rle_dict = build_rle_dict(mask_dict)
-    buid_submission(sample_sub, rle_dict)
+    buid_submission(sample_sub, rle_dict, sub_config["SUB_FILE"])
 
 
 if __name__ == "__main__":

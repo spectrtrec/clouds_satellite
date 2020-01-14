@@ -22,11 +22,12 @@ from utils.utils import init_seed, load_yaml
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str)
-    parser.add_argument("--encoder_name", type=str)
     return parser.parse_args()
+
 
 def flip_tensor_lr(images):
     invert_indices = torch.arange(images.data.size()[-1] - 1, -1, -1).long()
@@ -105,9 +106,7 @@ def avarage_masks(plk_list, experiment_folder, config):
 
 def main():
     args = parse_args()
-    config_path = Path(
-        args.config.strip("/")
-    )
+    config_path = Path(args.config.strip("/"))
 
     experiment_folder = config_path.parents[0]
     inference_config = load_yaml(config_path)
@@ -122,14 +121,12 @@ def main():
 
     train_df, submission = prepare_train(os.path.join(os.getcwd(), "", "cloudsimg"))
     model = smp.Unet(
-            encoder_name=args.encoder_name,
-            encoder_weights="imagenet",
-            classes=4,
-            activation=None,
-        ).to(device)
-    preprocessing_fn = smp.encoders.get_preprocessing_fn(
-            args.encoder_name, "imagenet"
-    )
+        encoder_name=args.encoder_name,
+        encoder_weights="imagenet",
+        classes=4,
+        activation=None,
+    ).to(device)
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(args.encoder_name, "imagenet")
     test_dataset = CloudDataset(
         submission,
         test_path,

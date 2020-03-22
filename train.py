@@ -135,7 +135,6 @@ if __name__ == "__main__":
     batch_size = train_config["BATCH_SIZE"]
 
     usefolds = map(str, train_config["FOLD"]["USEFOLDS"])
-
     for fold_id in usefolds:
         log_dir = Path(
             experiment_folder, train_config["LOGGER_DIR"] + "/fold_" + fold_id

@@ -13,19 +13,21 @@ import torch.optim as optim
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
+from torch.optim.lr_scheduler import (CosineAnnealingLR, ReduceLROnPlateau,
+                                      StepLR)
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SubsetRandomSampler
 
 import segmentation_models_pytorch as smp
 from torchmethods.dataloader import *
+from torchmethods.metrics import *
 from utils.loss import *
 from utils.utils import *
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-class PytorchTrainer(object):
+class PytorchTrainer(Metrics):
     """This class takes care of training and validation of our model"""
 
     def __init__(
@@ -44,6 +46,7 @@ class PytorchTrainer(object):
         checkpoints_history_folder,
         callback,
     ):
+        super().__init__()
         self.num_epochs = epochs
         self.net = model
         self.best_loss = float("inf")
@@ -72,9 +75,6 @@ class PytorchTrainer(object):
         )
         self.checkpoints_history_folder = Path(checkpoints_history_folder)
         self.callbacks = callback
-        self.global_epoch = 1
-        self.train_metrics = {"BCEDiceLoss": 0}
-        self.val_metrics = {"BCEDiceLoss": 0, "DiceLoss": 0}
 
     def train(self, epoch, phase):
         running_loss = 0.0
@@ -152,6 +152,7 @@ class PytorchTrainer(object):
             running_loss_dice += loss_dice.item() * inputs.size(0)
         epoch_loss = running_loss / data_size
         epoch_loss_dice = running_loss_dice / data_size
+
         self.val_metrics["BCEDiceLoss"] = epoch_loss
         self.val_metrics["DiceLoss"] = epoch_loss_dice
         return epoch_loss
@@ -163,4 +164,3 @@ class PytorchTrainer(object):
         else:
             state_dict = model.state_dict()
         return state_dict
-

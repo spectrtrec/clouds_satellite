@@ -56,5 +56,5 @@ RUN pip install --no-cache-dir \
     efficientnet_pytorch \
     adabound
 
-ENV PROJECT_ROOT /clouds-sattellite
+ENV PROJECT_ROOT /clouds_sattellite
 WORKDIR ${PROJECT_ROOT}

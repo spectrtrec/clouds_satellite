@@ -2,10 +2,10 @@ APP_NAME=cloudsdetect
 CONTAINER_NAME=clouds
 
 build:  ## Build the container
-	nvidia-docker build -t ${APP_NAME} -f Dockerfile .
+	sudo docker build -t ${APP_NAME} -f Dockerfile .
 
 run: ## Run container
-	nvidia-docker run \
+	docker run \
 		-e DISPLAY=unix${DISPLAY} -v /tmp/.X11-unix:/tmp/.X11-unix --privileged \
 		--ipc=host \
 		-itd \
@@ -15,7 +15,7 @@ run: ## Run container
 		-v $(shell pwd):/clouds-satellite $(APP_NAME) bash
 
 exec: ## Run a bash in a running container
-	nvidia-docker exec -it ${CONTAINER_NAME} bash
+	docker exec -it ${CONTAINER_NAME} bash
 
 stop: ## Stop and remove a running container
 	docker stop ${CONTAINER_NAME}; docker rm ${CONTAINER_NAME}

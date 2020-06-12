@@ -8,9 +8,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
-from albumentations import torch as AT
+from albumentations.pytorch.transforms import ToTensor
 from torch.optim import lr_scheduler
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
+from torch.optim.lr_scheduler import (CosineAnnealingLR, ReduceLROnPlateau,
+                                      StepLR)
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.utils.data.sampler import SubsetRandomSampler
 
@@ -20,11 +21,11 @@ from utils.utils import *
 class CloudDataset(Dataset):
     def __init__(
         self,
-        df: pd.DataFrame,
-        img_path: str,
-        img_ids: np.array,
+        df,
+        img_path,
+        img_ids,
         mode,
-        transforms=albu.Compose([albu.HorizontalFlip(), AT.ToTensor()]),
+        transforms=albu.Compose([albu.HorizontalFlip(), ToTensor()]),
         preprocessing=None,
     ):
         self.df = df
@@ -41,8 +42,9 @@ class CloudDataset(Dataset):
         if self.mode in ["train", "validation"]:
             image_name = self.img_ids[idx]
             mask = make_mask(self.df, image_name)
+            print(os.path.join(os.getcwd(), "", self.data_folder, "", image_name))
             img = cv2.cvtColor(
-                cv2.imread(os.path.join(self.data_folder, image_name)),
+                cv2.imread(os.path.join(os.getcwd(), "", self.data_folder, "", image_name)),
                 cv2.COLOR_BGR2RGB,
             )
             augmented = self.transforms(image=img, mask=mask)
@@ -65,3 +67,34 @@ class CloudDataset(Dataset):
                 preprocessed = self.preprocessing(image=img)
                 img = preprocessed["image"]
             return img, image_name
+
+
+def make_data_loader(dataset, batch_size, num_workers, shuffle):
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=False,
+    )
+
+
+def make_data(
+    train_df,
+    img_id,
+    mode,
+    transform,
+    preprocessing,
+    data_folder,
+    num_workers,
+    batch_size,
+):
+    dataset = CloudDataset(
+        train_df, data_folder, img_id, mode, transform, preprocessing
+    )
+    if mode == "train":
+        shuffle = True
+    else:
+        shuffle = False
+    loader = make_data_loader(dataset, batch_size, num_workers, shuffle)
+    return loader

@@ -2,7 +2,6 @@ import heapq
 import time
 from pathlib import Path
 
-import adabound
 import numpy as np
 import pandas as pd
 import torch
@@ -13,8 +12,7 @@ import torch.optim as optim
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
-from torch.optim.lr_scheduler import (CosineAnnealingLR, ReduceLROnPlateau,
-                                      StepLR)
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SubsetRandomSampler
 
@@ -33,10 +31,6 @@ class PytorchTrainer(Metrics):
     def __init__(
         self,
         epochs,
-        train_dataloader,
-        validation_dataloader,
-        train_data,
-        val_data,
         model,
         optimizer,
         sheduler,
@@ -48,27 +42,12 @@ class PytorchTrainer(Metrics):
     ):
         super().__init__()
         self.num_epochs = epochs
-        self.net = model
-        self.best_loss = float("inf")
-        self.dataloaders = [train_dataloader, validation_dataloader]
-        self.phases = ["train", "val"]
-        self.device = torch.device("cuda:0")
-        self.criterion = smp.utils.losses.BCEDiceLoss(eps=1.0)
-        self.optimizer = torch.optim.Adam(
-            [
-                {"params": self.net.decoder.parameters(), "lr": 1e-2},
-                {"params": self.net.encoder.parameters(), "lr": 1e-3},
-            ]
-        )
+        self.criterion = DiceBCELoss()
+        self.optimizer = optimizer
         self.scheduler = sheduler
-        self.net = self.net.to(self.device)
-        self.dataloaders = {
-            phase: self.dataloaders[i] for i, phase in enumerate(self.phases)
-        }
+        self.net = model.to(torch.device("cuda:0"))
         self.checkpoints_topk = checkpoints_topk
         self.score_heap = []
-        self.traindata = train_data
-        self.validation_data = val_data
         self.calculation_name = calculation_name
         self.best_checkpoint_path = Path(
             best_checkpoint_folder, "{}.pth".format(self.calculation_name)
@@ -76,10 +55,8 @@ class PytorchTrainer(Metrics):
         self.checkpoints_history_folder = Path(checkpoints_history_folder)
         self.callbacks = callback
 
-    def train(self, epoch, phase):
+    def train(self, epoch, dataloader, data_size):
         running_loss = 0.0
-        data_size = self.traindata.__len__()
-        dataloader = self.dataloaders[phase]
         self.net.train()
         for inputs, masks, _ in dataloader:
             inputs, masks = inputs.to(device), masks.to(device)
@@ -94,18 +71,37 @@ class PytorchTrainer(Metrics):
         self.train_metrics["BCEDiceLoss"] = epoch_loss
         return epoch_loss
 
-    def fit(self, fold):
+    def validation(self, epoch, dataloader, data_size):
+        running_loss, running_loss_dice = 0.0, 0.0
+        self.net.eval()
+        for inputs, masks, _ in dataloader:
+            inputs, masks = inputs.to(device), masks.to(device)
+            with torch.set_grad_enabled(False):
+                outputs = self.net(inputs)
+                loss = self.criterion(outputs, masks)
+                loss_dice = dice_loss(outputs, masks)
+            running_loss += loss.item() * inputs.size(0)
+            running_loss_dice += loss_dice.item() * inputs.size(0)
+        epoch_loss = running_loss / data_size
+        epoch_loss_dice = running_loss_dice / data_size
+        self.val_metrics["BCEDiceLoss"] = epoch_loss
+        self.val_metrics["DiceLoss"] = epoch_loss_dice
+        return epoch_loss
+
+    def fit(self, fold, data_factory):
         self.callbacks.on_train_begin(fold)
+        train_loader = data_factory.make_train_loader()
+        val_loader = data_factory.make_val_loader()
         for epoch in range(self.num_epochs):
             self.callbacks.on_epoch_begin(self.global_epoch)
-            self.train(epoch, "train")
+            self.train(epoch, train_loader, train_loader.__len__())
             state = {
                 "epoch": epoch,
                 "best_loss": self.best_loss,
                 "state_dict": self.net.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
             }
-            validation_loss = self.validate(epoch, "val")
+            validation_loss = self.validation(epoch, val_loader, val_loader.__len__())
             self.callbacks.on_epoch_end(
                 self.global_epoch, self.train_metrics, self.val_metrics
             )
@@ -136,26 +132,6 @@ class PytorchTrainer(Metrics):
             else:
                 self.scheduler.step()
         self.callbacks.on_train_end()
-
-    def validate(self, epoch, phase):
-        running_loss, running_loss_dice = 0.0, 0.0
-        self.net.eval()
-        data_size = self.validation_data.__len__()
-        dataloader = self.dataloaders[phase]
-        for inputs, masks, _ in dataloader:
-            inputs, masks = inputs.to(device), masks.to(device)
-            with torch.set_grad_enabled(False):
-                outputs = self.net(inputs)
-                loss = self.criterion(outputs, masks)
-                loss_dice = dice_loss(outputs, masks)
-            running_loss += loss.item() * inputs.size(0)
-            running_loss_dice += loss_dice.item() * inputs.size(0)
-        epoch_loss = running_loss / data_size
-        epoch_loss_dice = running_loss_dice / data_size
-
-        self.val_metrics["BCEDiceLoss"] = epoch_loss
-        self.val_metrics["DiceLoss"] = epoch_loss_dice
-        return epoch_loss
 
     @staticmethod
     def get_state_dict(model):

@@ -45,8 +45,6 @@ def train_fold(
     train_config,
     model,
     train_df,
-    train_id,
-    valid_id,
     experiment_folder,
     fold,
     log_dir,
@@ -77,10 +75,6 @@ def train_fold(
     scheduler = scheduler_class(optimizer, **train_config["SCHEDULER"]["ARGS"])
     data_factory = DataFactory(
         train_df,
-        train_id,
-        valid_id,
-        get_training_augmentation(),
-        get_validation_augmentation(),
         get_preprocessing(preprocessing_fn),
         train_config["DATA_PARAMS"]
     )
@@ -118,13 +112,6 @@ if __name__ == "__main__":
         log_dir = Path(
             experiment_folder, train_config["LOGGER_DIR"] + "/fold_" + fold_id
         )
-        df_train = pd.read_csv(
-            f"folds/train_fold_{fold_id}.csv", names=["im_id"], header=0, nrows=300
-        )
-        df_valid = pd.read_csv(
-            f"folds/validation_fold_{fold_id}.csv", names=["im_id"], header=0, nrows=300
-        )
-
         model = smp.Unet(
             encoder_name=train_config["ENCODER"],
             encoder_weights="imagenet",
@@ -138,8 +125,6 @@ if __name__ == "__main__":
             train_config,
             model,
             train_df,
-            df_train["im_id"].values,
-            df_valid["im_id"].values,
             experiment_folder,
             fold_id,
             log_dir,

@@ -1,47 +1,72 @@
+import os
 import pydoc
+
+import pandas as pd
 
 from torchmethods.dataloader import make_data
 from torchmethods.metrics import Metrics
+from utils.utils import get_augmentation
 
 
 class DataFactory:
     def __init__(
         self,
         train_df,
-        img_id_train,
-        img_id_val,
-        transform_train,
-        transform_val,
         preprocessing,
         params,
     ):
         self.train_df = train_df
-        self.img_id_train = img_id_train
-        self.img_id_val = img_id_val
-        self.transform_train = transform_train
-        self.transform_val = transform_val
         self.preprocessing = preprocessing
         self.params = params
 
-    def make_train_loader(self, mode="train"):
+    def make_train_loader(self, fold=None, mode="train"):
+        img_ids = self.make_filenames(mode, fold)
+        train_transform = get_augmentation(mode)
         return make_data(
             self.train_df,
-            self.img_id_train,
+            img_ids,
             mode,
-            self.transform_train,
+            train_transform,
             self.preprocessing,
             **self.params
         )
 
-    def make_val_loader(self, mode="validation"):
+    def make_val_loader(self, fold, mode="validation"):
+        img_ids = self.make_filenames(mode, fold)
+        transform_val = get_augmentation(mode)
         return make_data(
             self.train_df,
-            self.img_id_val,
+            img_ids,
             mode,
-            self.transform_val,
+            transform_val,
             self.preprocessing,
             **self.params
         )
+
+    def make_test_loader(self, fold=None, mode="test"):
+        img_ids = self.make_filenames(mode, fold)
+        transform_test = get_augmentation(mode)
+        return make_data(
+            self.train_df,
+            img_ids,
+            mode,
+            transform_test,
+            self.preprocessing,
+            **self.params
+        )
+
+    def make_filenames(self, mode, fold):
+        if mode == "test":
+            df_img = pd.read_csv('folds/test_id.csv')
+        if mode == 'train':
+            df_img = pd.read_csv(
+                f"folds/train_fold_{fold}.csv", names=["im_id"], header=0
+            )
+        elif mode == 'validation':
+            df_img = pd.read_csv(
+                f"folds/validation_fold_{fold}.csv", names=["im_id"], header=0
+            )
+        return df_img['im_id'].values
 
 
 class MetricFactory:

@@ -91,8 +91,8 @@ class PytorchTrainer(Metrics):
 
     def fit(self, fold, data_factory):
         self.callbacks.on_train_begin(fold)
-        train_loader = data_factory.make_train_loader()
-        val_loader = data_factory.make_val_loader()
+        train_loader = data_factory.make_train_loader(fold)
+        val_loader = data_factory.make_val_loader(fold)
         for epoch in range(self.num_epochs):
             self.callbacks.on_epoch_begin(self.global_epoch)
             self.metrics.train_metrics = self._run_one_epoch(

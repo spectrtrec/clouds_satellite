@@ -10,8 +10,7 @@ import torchvision
 import torchvision.transforms as transforms
 from albumentations.pytorch.transforms import ToTensor
 from torch.optim import lr_scheduler
-from torch.optim.lr_scheduler import (CosineAnnealingLR, ReduceLROnPlateau,
-                                      StepLR)
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.utils.data.sampler import SubsetRandomSampler
 
@@ -39,12 +38,14 @@ class CloudDataset(Dataset):
         return len(self.img_ids)
 
     def __getitem__(self, idx):
+        sample = {}
         if self.mode in ["train", "validation"]:
             image_name = self.img_ids[idx]
             mask = make_mask(self.df, image_name)
-            print(os.path.join(os.getcwd(), "", self.data_folder, "", image_name))
             img = cv2.cvtColor(
-                cv2.imread(os.path.join(os.getcwd(), "", self.data_folder, "", image_name)),
+                cv2.imread(
+                    os.path.join(os.getcwd(), "", self.data_folder, "", image_name)
+                ),
                 cv2.COLOR_BGR2RGB,
             )
             augmented = self.transforms(image=img, mask=mask)
@@ -54,7 +55,6 @@ class CloudDataset(Dataset):
                 preprocessed = self.preprocessing(image=img, mask=mask)
                 img = preprocessed["image"]
                 mask = preprocessed["mask"]
-            return img, mask, image_name
         else:
             image_name = self.img_ids[idx]
             img = cv2.cvtColor(
@@ -66,7 +66,11 @@ class CloudDataset(Dataset):
             if self.preprocessing:
                 preprocessed = self.preprocessing(image=img)
                 img = preprocessed["image"]
-            return img, image_name
+        sample["img"] = img
+        sample["image_name"] = image_name
+        if self.mode in ["train", "validation"]:
+            sample["mask"] = mask
+        return sample
 
 
 def make_data_loader(dataset, batch_size, num_workers, shuffle):

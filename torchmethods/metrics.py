@@ -5,8 +5,9 @@ from torch.nn import DataParallel
 
 
 class Metrics:
-    def __init__(self,):
+    def __init__(self, functions=None):
+        self.functions = functions
         self.best_loss = float("inf")
         self.global_epoch = 1
-        self.train_metrics = {"BCEDiceLoss": 0}
-        self.val_metrics = {"BCEDiceLoss": 0, "DiceLoss": 0}
+        self.train_metrics = {}
+        self.val_metrics = {}

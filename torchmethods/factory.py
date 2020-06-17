@@ -1,4 +1,7 @@
+import pydoc
+
 from torchmethods.dataloader import make_data
+from torchmethods.metrics import Metrics
 
 
 class DataFactory:
@@ -38,4 +41,21 @@ class DataFactory:
             self.transform_val,
             self.preprocessing,
             **self.params
+        )
+
+
+class MetricFactory:
+    def __init__(self, params: dict):
+        self.params = params
+
+    @staticmethod
+    def get_metric_name(metric):
+        return metric.split('.')[-1]
+
+    def make_metrics(self) -> Metrics:
+        return Metrics(
+            {
+                self.get_metric_name(metric): pydoc.locate(metric)(**params)
+                for metric, params in self.params['metrics'].items()
+            }
         )

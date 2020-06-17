@@ -1,9 +1,11 @@
 import heapq
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import segmentation_models_pytorch as smp
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
@@ -12,17 +14,19 @@ import torch.optim as optim
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau, StepLR
+from torch.optim.lr_scheduler import (CosineAnnealingLR, ReduceLROnPlateau,
+                                      StepLR)
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SubsetRandomSampler
+from tqdm import tqdm
 
-import segmentation_models_pytorch as smp
 from torchmethods.dataloader import *
 from torchmethods.metrics import *
 from utils.loss import *
 from utils.utils import *
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+tqdm.monitor_interval = 0
 
 
 class PytorchTrainer(Metrics):
@@ -39,6 +43,7 @@ class PytorchTrainer(Metrics):
         checkpoints_topk,
         checkpoints_history_folder,
         callback,
+        factory,
     ):
         super().__init__()
         self.num_epochs = epochs
@@ -54,39 +59,35 @@ class PytorchTrainer(Metrics):
         )
         self.checkpoints_history_folder = Path(checkpoints_history_folder)
         self.callbacks = callback
+        self.metric_factory = factory
+        self._metrics = None
 
-    def train(self, epoch, dataloader, data_size):
-        running_loss = 0.0
-        self.net.train()
-        for inputs, masks, _ in dataloader:
-            inputs, masks = inputs.to(device), masks.to(device)
-            self.optimizer.zero_grad()
-            with torch.set_grad_enabled(True):
-                logit = self.net(inputs)
-                loss = self.criterion(logit, masks)
-                loss.backward()
-                self.optimizer.step()
-            running_loss += loss.item() * inputs.size(0)
-        epoch_loss = running_loss / data_size
-        self.train_metrics["BCEDiceLoss"] = epoch_loss
-        return epoch_loss
+    @property
+    def metrics(self):
+        if self._metrics is None:
+            self._metrics = self.metric_factory.make_metrics()
+        return self._metrics
 
-    def validation(self, epoch, dataloader, data_size):
-        running_loss, running_loss_dice = 0.0, 0.0
-        self.net.eval()
-        for inputs, masks, _ in dataloader:
-            inputs, masks = inputs.to(device), masks.to(device)
-            with torch.set_grad_enabled(False):
-                outputs = self.net(inputs)
-                loss = self.criterion(outputs, masks)
-                loss_dice = dice_loss(outputs, masks)
-            running_loss += loss.item() * inputs.size(0)
-            running_loss_dice += loss_dice.item() * inputs.size(0)
-        epoch_loss = running_loss / data_size
-        epoch_loss_dice = running_loss_dice / data_size
-        self.val_metrics["BCEDiceLoss"] = epoch_loss
-        self.val_metrics["DiceLoss"] = epoch_loss_dice
-        return epoch_loss
+    def _run_one_epoch(self, epoch, loader, is_train=True):
+        epoch_report = defaultdict(float)
+        progress_bar = tqdm(
+            iterable=enumerate(loader),
+            total=len(loader),
+            desc=f"Epoch {epoch} {['validation', 'train'][is_train]}ing...",
+            ncols=0
+        )
+        metrics = {}
+        with torch.set_grad_enabled(is_train):
+            for i, data in progress_bar:
+                step_report = self._make_step(data, is_train)
+                for key, value in step_report.items():
+                    if isinstance(value, torch.Tensor):
+                        value = value.item()
+                    epoch_report[key] += value
+                metrics = {k: v / (i + 1) for k, v in epoch_report.items()}
+                progress_bar.set_postfix(
+                    **{k: f'{v:.5f}' for k, v in metrics.items()})
+        return metrics
 
     def fit(self, fold, data_factory):
         self.callbacks.on_train_begin(fold)
@@ -94,16 +95,18 @@ class PytorchTrainer(Metrics):
         val_loader = data_factory.make_val_loader()
         for epoch in range(self.num_epochs):
             self.callbacks.on_epoch_begin(self.global_epoch)
-            self.train(epoch, train_loader, train_loader.__len__())
+            self.metrics.train_metrics = self._run_one_epoch(
+                epoch, train_loader, is_train=False)
             state = {
                 "epoch": epoch,
                 "best_loss": self.best_loss,
                 "state_dict": self.net.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
             }
-            validation_loss = self.validation(epoch, val_loader, val_loader.__len__())
+            self.metrics.val_metrics = self._run_one_epoch(
+                epoch, val_loader, is_train=False)
             self.callbacks.on_epoch_end(
-                self.global_epoch, self.train_metrics, self.val_metrics
+                self.global_epoch, self.metrics.train_metrics, self.metrics.val_metrics
             )
             self.global_epoch += 1
             checkpoints_history_path = Path(
@@ -111,7 +114,8 @@ class PytorchTrainer(Metrics):
                 "{}_epoch{}.pth".format(self.calculation_name, epoch),
             )
             torch.save(state, checkpoints_history_path)
-            heapq.heappush(self.score_heap, (validation_loss, checkpoints_history_path))
+            heapq.heappush(self.score_heap,
+                           (self.metrics.val_metrics['loss'], checkpoints_history_path))
 
             if len(self.score_heap) > self.checkpoints_topk:
                 _, removing_checkpoint_path = heapq.heappop(self.score_heap)
@@ -122,16 +126,35 @@ class PytorchTrainer(Metrics):
                     )
                 )
 
-            if validation_loss < self.best_loss:
-                self.best_loss = validation_loss
+            if self.metrics.val_metrics['loss'] < self.best_loss:
+                self.best_loss = self.metrics.val_metrics['loss']
                 state["best_loss"] = self.best_loss
                 torch.save(state, self.best_checkpoint_path)
 
             if self.scheduler.__class__.__name__ == "ReduceLROnPlateau":
-                self.scheduler.step(validation_loss)
+                self.scheduler.step(self.metrics.val_metrics['loss'])
             else:
                 self.scheduler.step()
         self.callbacks.on_train_end()
+
+    def _make_step(self, data, is_train):
+        report = {}
+        images = data["img"].to(device)
+        labels = data["mask"].to(device)
+        predictions = self.net(images)
+        loss = self.criterion(predictions, labels)
+        report["loss"] = loss.data
+
+        if is_train:
+            loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+        else:
+            for metric, f in self.metrics.functions.items():
+                report[metric] = f(
+                    predictions, labels
+                )
+        return report
 
     @staticmethod
     def get_state_dict(model):

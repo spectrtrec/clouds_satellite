@@ -38,7 +38,8 @@ def rle_decode(mask_rle: str = "", shape: tuple = (1400, 2100)):
     Returns numpy array, 1 - mask, 0 - background
     """
     s = mask_rle.split()
-    starts, lengths = [np.asarray(x, dtype=int) for x in (s[0:][::2], s[1:][::2])]
+    starts, lengths = [np.asarray(x, dtype=int)
+                       for x in (s[0:][::2], s[1:][::2])]
     starts -= 1
     ends = starts + lengths
     img = np.zeros(shape[0] * shape[1], dtype=np.uint8)
@@ -103,7 +104,7 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def get_training_augmentation():
+def training_augmentation():
     train_transform = [
         albu.Resize(320, 640),
         albu.HorizontalFlip(p=0.25),
@@ -115,10 +116,24 @@ def get_training_augmentation():
     return albu.Compose(train_transform)
 
 
-def get_validation_augmentation():
+def validation_augmentation():
     """Add paddings to make image shape divisible by 32"""
     test_transform = [albu.Resize(320, 640)]
     return albu.Compose(test_transform)
+
+
+def get_augmentation(mode):
+    if mode == 'train':
+        return training_augmentation()
+    else:
+        return validation_augmentation()
+
+
+def get_pkl_file_name(name):
+    result_path = [
+        y.strip() for x in str(name).split(".") for y in x.split("/")
+    ]
+    return result_path[4]
 
 
 def get_preprocessing(preprocessing_fn):
@@ -170,7 +185,8 @@ def generate_folds(df, files_train, mask_count, n_fold) -> None:
 
 
 def save_ids(ids: pd.DataFrame, name: str) -> None:
-    ids.to_csv(os.path.join(get_project_root(), "", "folds", "", name), index=False)
+    ids.to_csv(os.path.join(get_project_root(),
+                            "", "folds", "", name), index=False)
 
 
 def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame, folds: int) -> None:
@@ -183,9 +199,11 @@ def prepare_ids(train: pd.DataFrame, sub: pd.DataFrame, folds: int) -> None:
         .rename(columns={"index": "img_id", "Image_Label": "count"})
     )
     test_ids = (
-        sub["Image_Label"].apply(lambda x: x.split("_")[0]).drop_duplicates().values
+        sub["Image_Label"].apply(lambda x: x.split("_")[
+                                 0]).drop_duplicates().values
     )
-    generate_folds(id_mask_count["img_id"], id_mask_count["img_id"].values, id_mask_count["count"], folds)
+    generate_folds(
+        id_mask_count["img_id"], id_mask_count["img_id"].values, id_mask_count["count"], folds)
     save_ids(pd.DataFrame(test_ids, columns=["im_id"]), "test_id.csv")
 
 
@@ -201,4 +219,3 @@ def init_seed(SEED=42):
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
     torch.backends.cudnn.deterministic = True
-    

@@ -1,5 +1,4 @@
 PIPELINE_NAME: efficientnet-b3
-TRAIN_PATH: 'cloudsimg/train_images'
 PREPARE_FOLDS: TRUE
 LOGGER_DIR: 'log'
 
@@ -12,13 +11,22 @@ CHECKPOINTS:
   BEST_FOLDER: checkpoints/best
   TOPK: 4
 
-WORKERS: 10
-BATCH_SIZE: 10
 EPOCHES: 35
 
+DATA_PARAMS:
+  data_folder: 'cloudsimg/train_images'
+  num_workers: 10
+  batch_size: 2
+
+train_params:
+  metrics:
+      utils.loss.DiceBCELoss:
+          weight: None
+          size_average: TRUE
+
 FOLD:
-  NUMBER: 5
-  USEFOLDS: [0,1,2,3,4]
+  NUMBER: 3
+  USEFOLDS: [0,1,2]
 
 OPTIMIZER:
   CLASS: Adam
@@ -31,3 +39,5 @@ SCHEDULER:
  ARGS: 
    T_max: 8
    eta_min: 0.0000001       
+
+ENCODER: resnet34

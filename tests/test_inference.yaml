@@ -1,0 +1,18 @@
+DATA_PARAMS:
+  data_folder: 'cloudsimg/test_images'
+  num_workers: 10
+  batch_size: 2
+
+CHECKPOINTS:
+  FULL_FOLDER: checkpoints
+  BEST_FOLDER: checkpoints/best
+  PIPELINE_PATH: tests/
+  PIPELINE_NAME: efficientnet-b3
+
+DICT_FOLDER: 'dict_efficientnet-b3'
+SUBMIT_BEST: FALSE
+USEFOLDS: [0]
+SELECTED_CHECKPOINTS:
+  fold0: [0]
+RESULT: result_top4_folds.pkl
+ENCODER: resnet34

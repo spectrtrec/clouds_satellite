@@ -10,66 +10,11 @@ import pandas as pd
 import torch
 import yaml
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split, StratifiedKFold, KFold
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
 
 
-def get_project_root() -> Path:
-    """Returns project root folder."""
-    return Path(__file__).parent.parent
-
-
-def get_img(x, path: str, folder: str = "train_images"):
-    """
-    Return image based on image name and folder.
-    """
-    data_folder = f"{path}/{folder}"
-    image_path = os.path.join(data_folder, x)
-    img = cv2.imread(image_path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return img
-
-
-def rle_decode(mask_rle: str = "", shape: tuple = (1400, 2100)):
-    """
-    Decode rle encoded mask.
-
-    :param mask_rle: run-length as string formatted (start length)
-    :param shape: (height, width) of array to return 
-    Returns numpy array, 1 - mask, 0 - background
-    """
-    s = mask_rle.split()
-    starts, lengths = [np.asarray(x, dtype=int)
-                       for x in (s[0:][::2], s[1:][::2])]
-    starts -= 1
-    ends = starts + lengths
-    img = np.zeros(shape[0] * shape[1], dtype=np.uint8)
-    for lo, hi in zip(starts, ends):
-        img[lo:hi] = 1
-    return img.reshape(shape, order="F")
-
-
-def make_mask(
-    df: pd.DataFrame, image_name: str = "img.jpg", shape: tuple = (1400, 2100)
-):
-    """
-    Create mask based on df, image name and shape.
-    """
-    encoded_masks = df.loc[df["im_id"] == image_name, "EncodedPixels"]
-    masks = np.zeros((shape[0], shape[1], 4), dtype=np.float32)
-
-    for idx, label in enumerate(encoded_masks.values):
-        if label is not np.nan:
-            mask = rle_decode(label)
-            masks[:, :, idx] = mask
-
-    return masks
-
-
-def to_tensor(x, **kwargs):
-    """
-    Convert image or mask.
-    """
-    return x.transpose(2, 0, 1).astype("float32")
+class DataframeError(Exception):
+    """Raised when can not read csv file for any reason"""
 
 
 def mask2rle(img):
@@ -85,19 +30,9 @@ def mask2rle(img):
     return " ".join(str(x) for x in runs)
 
 
-def run_length_encode(component):
-    component = component.T.flatten()
-    start = np.where(component[1:] > component[:-1])[0] + 1
-    end = np.where(component[:-1] > component[1:])[0] + 1
-    length = end - start
-    rle = []
-    for i in range(len(length)):
-        if i == 0:
-            rle.extend([start[0], length[0]])
-        else:
-            rle.extend([start[i] - end[i - 1], length[i]])
-    rle = " ".join([str(r) for r in rle])
-    return rle
+def get_project_root() -> Path:
+    """Returns project root folder."""
+    return Path(__file__).parent.parent
 
 
 def sigmoid(x):
@@ -133,20 +68,17 @@ def get_pkl_file_name(name):
     result_path = [
         y.strip() for x in str(name).split(".") for y in x.split("/")
     ]
-    return result_path[4]
+    return result_path[4] + ".pkl"
+
+
+def to_tensor(x, **kwargs):
+    """
+    Convert image or mask.
+    """
+    return x.transpose(2, 0, 1).astype("float32")
 
 
 def get_preprocessing(preprocessing_fn):
-    """Construct preprocessing transform
-
-    Args:
-        preprocessing_fn (callbale): data normalization function 
-            (can be specific for each pretrained neural network)
-    Return:
-        transform: albumentations.Compose
-
-    """
-
     _transform = [
         albu.Lambda(image=preprocessing_fn),
         albu.Lambda(image=to_tensor, mask=to_tensor),
@@ -154,18 +86,12 @@ def get_preprocessing(preprocessing_fn):
     return albu.Compose(_transform)
 
 
-def dice(img1, img2):
-    img1 = np.asarray(img1).astype(np.bool)
-    img2 = np.asarray(img2).astype(np.bool)
-
-    intersection = np.logical_and(img1, img2)
-
-    return 2.0 * intersection.sum() / (img1.sum() + img2.sum())
-
-
 def prepare_train(path: str):
-    train = pd.read_csv(f"{path}/train.csv")
-    sub = pd.read_csv(f"{path}/sample_submission.csv")
+    try:
+        train = pd.read_csv(f"{path}/train.csv")
+        sub = pd.read_csv(f"{path}/sample_submission.csv")
+    except Exception as e:
+        raise DataframeError("Can not read file") from e
     train["label"] = train["Image_Label"].apply(lambda x: x.split("_")[1])
     train["im_id"] = train["Image_Label"].apply(lambda x: x.split("_")[0])
     sub["label"] = sub["Image_Label"].apply(lambda x: x.split("_")[1])

@@ -108,9 +108,9 @@ cloudsimg/train_images
 clouds_resized/
 #files
 *.csv
-*.pth
-*.zip
+/configs/*.zip
 *.pkl
+*.pth
 *.txt
 *.pop-os
 ipynb_checkpoints

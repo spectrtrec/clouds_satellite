@@ -144,7 +144,7 @@ def main():
         model.eval()
         current_mask_dict = predict(test_loader, model)
         result_path = Path(dict_dir,   get_pkl_file_name(
-            checkpoint_path) + ".pkl")
+            checkpoint_path))
         with open(result_path, "wb") as handle:
             pickle.dump(current_mask_dict, handle,
                         protocol=pickle.HIGHEST_PROTOCOL)

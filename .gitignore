@@ -111,7 +111,6 @@ clouds_resized/
 /configs/*.zip
 *.pkl
 *.pth
-*.txt
 *.pop-os
 ipynb_checkpoints
 checkpoints

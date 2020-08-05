@@ -18,3 +18,5 @@ make exec
 ```
 ## References
 * https://github.com/albu/albumentations
+* Based on code of https://github.com/amirassov/kaggle-pneumothorax
+* Based on code of https://github.com/sneddy/pneumothorax-segmentation

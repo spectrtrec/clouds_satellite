@@ -32,6 +32,17 @@ make exec
     |   |   |      ├── logs_fold_i.txt
     |   |   ├── dict_efficientnet-b3
     |   |   |       ├── experiment_foldi_epochi.pkl
+    |   |   |   
+    ├── cloudsimg
+    |   |   |
+    │   ├── test_images
+    |   |   | ── *.jpg
+    |   |   | ── *.jpg
+    |   ├── train_images
+    |   |   | ── *.jpg
+    |   |   | ── *.jpg
+    |   ├── sample_submission.csv
+    |   ├── train.csv
 ## Install
 ```bash
 pip install -r requirements.txt
